@@ -1,0 +1,411 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Project Chimera Card Database Schema",
+  "description": "Comprehensive card data schema for all 12 factions with faction-specific fields and effect definitions",
+  "type": "object",
+  "properties": {
+    "cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/card"
+      }
+    },
+    "factions": {
+      "type": "object",
+      "properties": {
+        "Goetia": { "$ref": "#/definitions/faction" },
+        "Red Rose Templars": { "$ref": "#/definitions/faction" },
+        "Zodiac Concord": { "$ref": "#/definitions/faction" },
+        "Coven": { "$ref": "#/definitions/faction" },
+        "Oni Clans": { "$ref": "#/definitions/faction" },
+        "Chthonic Court": { "$ref": "#/definitions/faction" },
+        "Dreamtime Wanderers": { "$ref": "#/definitions/faction" },
+        "Celestial Host": { "$ref": "#/definitions/faction" },
+        "Mesopotamian Scourge": { "$ref": "#/definitions/faction" },
+        "Melanesian Voyagers": { "$ref": "#/definitions/faction" },
+        "Yaoguai Court": { "$ref": "#/definitions/faction" },
+        "Fallen Angels": { "$ref": "#/definitions/faction" },
+        "Neutral": { "$ref": "#/definitions/faction" }
+      }
+    }
+  },
+  "definitions": {
+    "card": {
+      "type": "object",
+      "required": ["id", "name", "type", "faction", "rarity", "cost"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z]{3,4}_[0-9]{2,3}$",
+          "description": "Unique card identifier (e.g., GOET_01, ZODI_01)"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "type": {
+          "enum": ["Unit", "Invocation", "Location", "Relic"]
+        },
+        "subtype": {
+          "type": "string",
+          "description": "Card subtype (e.g., Demon - King, Spirit - Fire)"
+        },
+        "faction": {
+          "enum": [
+            "Goetia", "Red Rose Templars", "Zodiac Concord", "Coven", 
+            "Oni Clans", "Chthonic Court", "Dreamtime Wanderers", 
+            "Celestial Host", "Mesopotamian Scourge", "Melanesian Voyagers", 
+            "Yaoguai Court", "Fallen Angels", "Neutral"
+          ]
+        },
+        "rarity": {
+          "enum": ["Common", "Uncommon", "Rare", "Legendary", "Mythic"]
+        },
+        "cost": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "atk": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Attack value for Units only"
+        },
+        "hp": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Health value for Units only"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/effect"
+          }
+        },
+        "flavor_text": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "visual_description": {
+          "type": "string",
+          "description": "Detailed description for art generation"
+        },
+        "art_path": {
+          "type": "string",
+          "pattern": "^res://assets/art/",
+          "description": "Path to card artwork"
+        },
+        "faction_specific": {
+          "$ref": "#/definitions/faction_specific_data"
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "required": ["trigger", "action"],
+      "properties": {
+        "trigger": {
+          "enum": [
+            "Ability", "Arrival", "Departure", "Death", "Damage", "Heal",
+            "Activate", "Combat", "Block", "Attack", "Start_Turn", "End_Turn",
+            "Pact", "Zeal", "Call", "Judgment", "Ritual", "Honor", "Apotheosis",
+            "Ascendant", "Disguise", "Shapeshift", "Sabbat", "Constellation"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "description": "Effect description or script reference"
+        },
+        "value": {
+          "type": "object",
+          "description": "Effect parameters and values"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Optional condition for effect activation"
+        },
+        "cost": {
+          "$ref": "#/definitions/cost",
+          "description": "Additional cost to activate effect"
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "properties": {
+        "aether": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "essence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nexus_health": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sacrifice_unit": {
+          "type": "boolean"
+        },
+        "discard_card": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "special": {
+          "type": "string",
+          "description": "Special cost requirements"
+        }
+      }
+    },
+    "faction_specific_data": {
+      "type": "object",
+      "properties": {
+        "goetia": {
+          "type": "object",
+          "properties": {
+            "rank": {
+              "enum": ["King", "Duke", "Marquis", "Earl", "President", "Prince", "Imp", "Soldier", "Spirit"]
+            },
+            "hierarchy_bonus": {
+              "type": "integer"
+            },
+            "pact_offers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "cost_type": {"type": "string"},
+                  "cost_amount": {"type": "integer"},
+                  "benefit": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "red_rose_templars": {
+          "type": "object",
+          "properties": {
+            "zeal_requirement": {
+              "type": "string",
+              "description": "Condition for zeal activation"
+            },
+            "crusade_bonus": {
+              "type": "object",
+              "properties": {
+                "atk_bonus": {"type": "integer"},
+                "hp_bonus": {"type": "integer"}
+              }
+            },
+            "hallowed_generation": {
+              "type": "integer",
+              "description": "Hallowed essence generated"
+            }
+          }
+        },
+        "zodiac_concord": {
+          "type": "object",
+          "properties": {
+            "zodiac_sign": {
+              "enum": [
+                "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces", "Ophiuchus"
+              ]
+            },
+            "element": {
+              "enum": ["Fire", "Earth", "Air", "Water", "Serpent"]
+            },
+            "ascendant_bonus": {
+              "type": "object"
+            },
+            "dignity": {
+              "enum": ["Exalted", "Domicile", "Detriment", "Fall", "Neutral"]
+            }
+          }
+        },
+        "coven": {
+          "type": "object",
+          "properties": {
+            "sabbat": {
+              "enum": ["Samhain", "Yule", "Imbolc", "Ostara", "Beltane", "Litha", "Lughnasadh", "Mabon"]
+            },
+            "ritual_level": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8
+            },
+            "natural_generation": {
+              "type": "integer"
+            },
+            "moon_phase": {
+              "enum": ["New", "Waxing", "Full", "Waning"]
+            }
+          }
+        },
+        "oni_clans": {
+          "type": "object",
+          "properties": {
+            "honor_value": {
+              "type": "integer"
+            },
+            "disguise_form": {
+              "type": "string",
+              "description": "Alternate form when disguised"
+            },
+            "clan": {
+              "enum": ["Red", "Blue", "Green", "White", "Black"]
+            },
+            "territory": {
+              "type": "string"
+            }
+          }
+        },
+        "chthonic_court": {
+          "type": "object",
+          "properties": {
+            "underworld_river": {
+              "enum": ["Styx", "Lethe", "Acheron", "Cocytus", "Phlegethon"]
+            },
+            "shade_revival": {
+              "type": "boolean"
+            },
+            "void_requirement": {
+              "type": "integer"
+            },
+            "katabasis_depth": {
+              "type": "integer"
+            }
+          }
+        },
+        "dreamtime_wanderers": {
+          "type": "object",
+          "properties": {
+            "songline": {
+              "type": "string"
+            },
+            "ancestor_spirit": {
+              "type": "string"
+            },
+            "dreaming_location": {
+              "type": "string"
+            },
+            "walkabout_progress": {
+              "type": "integer"
+            }
+          }
+        },
+        "celestial_host": {
+          "type": "object",
+          "properties": {
+            "aethyr": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30
+            },
+            "choir": {
+              "enum": ["Seraphim", "Cherubim", "Thrones", "Dominions", "Virtues", "Powers", "Principalities", "Archangels", "Angels"]
+            },
+            "enochian_name": {
+              "type": "string"
+            },
+            "luminous_generation": {
+              "type": "integer"
+            }
+          }
+        },
+        "mesopotamian_scourge": {
+          "type": "object",
+          "properties": {
+            "plague_type": {
+              "enum": ["Disease", "Locusts", "Famine", "Flood", "Darkness", "Death"]
+            },
+            "contagion_vector": {
+              "type": "string"
+            },
+            "ziggurat_level": {
+              "type": "integer"
+            },
+            "ancient_name": {
+              "type": "string"
+            }
+          }
+        },
+        "melanesian_voyagers": {
+          "type": "object",
+          "properties": {
+            "tide_phase": {
+              "enum": ["High", "Ebb", "Low", "Flow"]
+            },
+            "navigation_star": {
+              "type": "string"
+            },
+            "canoe_type": {
+              "enum": ["Outrigger", "Catamaran", "Vaka", "Waka"]
+            },
+            "taboo_protection": {
+              "type": "string"
+            }
+          }
+        },
+        "yaoguai_court": {
+          "type": "object",
+          "properties": {
+            "court_level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "bureaucratic_rank": {
+              "type": "string"
+            },
+            "transgression_type": {
+              "enum": ["Greed", "Wrath", "Pride", "Envy", "Gluttony", "Lust", "Sloth"]
+            },
+            "judgment_seal": {
+              "type": "string"
+            }
+          }
+        },
+        "fallen_angels": {
+          "type": "object",
+          "properties": {
+            "fall_reason": {
+              "enum": ["Pride", "Rebellion", "Love", "Knowledge", "Despair"]
+            },
+            "corruption_level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "former_choir": {
+              "enum": ["Seraphim", "Cherubim", "Thrones", "Dominions", "Virtues", "Powers", "Principalities", "Archangels", "Angels"]
+            },
+            "tainted_miracle": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "faction": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "essence_type": {"type": "string"},
+        "board_scene_path": {"type": "string"},
+        "primary_color": {"type": "string"},
+        "secondary_color": {"type": "string"},
+        "card_back_path": {"type": "string"},
+        "frame_path": {"type": "string"}
+      }
+    }
+  }
+}
