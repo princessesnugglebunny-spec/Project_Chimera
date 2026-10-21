@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Project Chimera - Digital Card Game</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🃏</text></svg>">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+  <canvas id="bg-canvas"></canvas>
+
+  <section id="title-screen" class="screen">
+    <h1>Project Chimera</h1>
+    <p class="subtitle">The Sundered Cosmos Awaits</p>
+    <div class="title-controls">
+      <label>Faction: <select id="faction-select"></select></label>
+      <label>Difficulty: <select id="difficulty-select">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+      </select></label>
+    </div>
+    <div class="title-buttons">
+      <button id="play-btn">Play</button>
+      <button id="rogue-btn">Descent (Roguelike)</button>
+      <button id="draft-btn">Draft Mode</button>
+      <button id="spectate-btn">Spectate (CPU vs CPU)</button>
+      <button id="hotseat-btn">Hot-Seat 2P</button>
+      <button id="collection-btn">Collection</button>
+      <button id="deckbuilder-btn">Deck Builder</button>
+      <button id="quests-btn">Quests & Achievements</button>
+      <button id="help-btn">How to Play</button>
+    </div>
+    <p id="loading">Loading cards...</p>
+    <div id="profile-bar"></div>
+  </section>
+
+  <section id="collection-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="back-from-collection">Back</button>
+      <span>Collection</span>
+      <span id="coll-count"></span>
+    </header>
+    <div class="filters">
+      <select id="coll-faction"></select>
+      <input id="coll-search" placeholder="Search..." />
+    </div>
+    <div id="collection-grid" class="card-grid"></div>
+    <button id="dust-btn">Dust 4 Commons → 1 Rare</button>
+  </section>
+
+  <section id="deckbuilder-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="back-from-deck">Back</button>
+      <span>Deck Builder</span>
+      <span id="deck-count">0/40</span>
+      <button id="save-deck-btn">Save Deck</button>
+    </header>
+    <div class="deckbuilder-layout">
+      <div class="deck-pool">
+        <select id="deck-faction"></select>
+        <div id="deck-pool-grid" class="card-grid"></div>
+      </div>
+      <div class="deck-current">
+        <h3>Current Deck</h3>
+        <div id="deck-current-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="quests-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="back-from-quests">Back</button>
+      <span>Quests & Achievements</span>
+    </header>
+    <div class="quests-layout">
+      <div>
+        <h3>Daily Quests</h3>
+        <div id="daily-quests"></div>
+      </div>
+      <div>
+        <h3>Achievements</h3>
+        <div id="achievements"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="game-screen" class="screen hidden">
+    <header class="topbar">
+      <div id="faction-banner"></div>
+      <div class="player-info opponent">
+        <span id="opp-name">AI</span>
+        <span>LP: <b id="opp-sanity">30</b></span><div class="lp-meter"><div class="lp-fill" id="opp-lp-fill"></div></div>
+        <span>Essence: <b id="opp-essence">0</b></span>
+        <span>Deck: <b id="opp-deck">0</b></span>
+        <span>Hand: <b id="opp-hand">0</b></span>
+      </div>
+      <div class="turn-info">
+        <span id="turn-label">Turn 1 - Your Turn</span>
+        <span id="phase-label">Main Phase</span>
+        <span id="faction-state"></span>
+        <span id="run-info"></span>
+      </div>
+      <div class="player-info self">
+        <span id="self-name">You</span>
+        <span>LP: <b id="self-sanity">30</b></span><div class="lp-meter"><div class="lp-fill" id="self-lp-fill"></div></div>
+        <span>Essence: <b id="self-essence">0</b></span>
+        <span>Deck: <b id="self-deck">0</b></span>
+        <span>XP: <b id="self-xp">0</b></span>
+      </div>
+    </header>
+
+    <main class="battlefield">
+      <div class="edge-track left-track">
+        <div class="track-label">Sanity</div>
+        <div class="track" id="self-sanity-track"></div>
+      </div>
+      <div class="board-column">
+        <div class="side opponent-side">
+          <div class="zone-label">Opponent Support (2)</div>
+          <div class="board-row zones back" id="opp-back"></div>
+          <div class="zone-label">Opponent Units (5)</div>
+          <div class="board-row zones front" id="opp-front"></div>
+          <div class="piles">
+            <div class="pile" id="opp-deck-pile">Deck</div>
+            <div class="pile" id="opp-discard-pile">GY</div>
+          </div>
+        </div>
+        <div class="center-zone">
+          <div id="field-zone" class="field-zone">Field Spell: none</div>
+          <div id="log" aria-live="polite" aria-atomic="false"></div>
+        </div>
+        <div class="side self-side">
+          <div class="zone-label">Your Units (5)</div>
+          <div class="board-row zones front" id="self-front"></div>
+          <div class="zone-label">Your Support (2)</div>
+          <div class="board-row zones back" id="self-back"></div>
+          <div class="piles">
+            <div class="pile" id="self-deck-pile">Deck</div>
+            <div class="pile" id="self-discard-pile">GY</div>
+          </div>
+        </div>
+      </div>
+      <div class="edge-track right-track">
+        <div class="track-label">Essence</div>
+        <div class="track" id="self-essence-track"></div>
+      </div>
+    </main>
+
+    <footer class="hand-area">
+      <div id="hand" class="hand"></div>
+      <div class="controls">
+        <button id="attack-btn">Declare Attack</button>
+        <button id="endturn-btn">End Turn</button>
+      </div>
+    </footer>
+  </section>
+
+  <div id="help-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <h2>How to Play</h2>
+      <p>Play cards by clicking them. Click units to select attackers, then Declare Attack. End Turn passes play. Shortcuts: 1-9 play cards, Enter end turn, Space attack.</p>
+      <button id="help-close">Close</button>
+    </div>
+  </div>
+  <div id="gameover" class="overlay hidden">
+    <div class="overlay-card">
+      <h2 id="gameover-title">Game Over</h2>
+      <p id="gameover-msg"></p>
+      <div id="reward-info"></div>
+      <button id="restart-btn">Continue</button>
+    </div>
+  </div>
+
+  <div id="tutorial" class="overlay hidden">
+    <div class="overlay-card">
+      <h2 id="tut-title">Welcome</h2>
+      <p id="tut-text"></p>
+      <button id="tut-next">Next</button>
+      <button id="tut-skip">Skip</button>
+    </div>
+  </div>
+
+  <div id="reward-pick" class="overlay hidden">
+    <div class="overlay-card">
+      <h2>Choose a Reward</h2>
+      <div id="reward-options" class="card-grid"></div>
+    </div>
+  </div>
+</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
