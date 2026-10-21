@@ -1,0 +1,54 @@
+name: OpenCode
+run-name: "OpenCode #${{ github.event.issue.number || inputs.issue_number }}${{ github.event.issue.title && format(' — {0}', github.event.issue.title) || '' }}"
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Existing issue to run
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: opencode-issue-${{ github.repository }}-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'OpenCode'))
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+      actions: write
+    uses: denaidark/OhMyGithub/.github/workflows/opencode-prepare.yml@bb7d1eeef73d6bc3ffa65c5ac4a472a9c2d87b38
+    with:
+      runtime_ref: bb7d1eeef73d6bc3ffa65c5ac4a472a9c2d87b38
+
+  opencode:
+    needs: prepare
+    if: needs.prepare.outputs.approved == 'true'
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+      actions: read
+      pull-requests: write
+    uses: denaidark/OhMyGithub/.github/workflows/opencode-reusable.yml@bb7d1eeef73d6bc3ffa65c5ac4a472a9c2d87b38
+    with:
+      runtime_ref: bb7d1eeef73d6bc3ffa65c5ac4a472a9c2d87b38
+      issue_number: ${{ needs.prepare.outputs.issue_number }}
+      request: ${{ needs.prepare.outputs.request }}
+      issue_title: ${{ needs.prepare.outputs.issue_title }}
+      labels_json: ${{ needs.prepare.outputs.labels_json }}
+      sender: ${{ needs.prepare.outputs.sender }}
+      target_ref: ${{ needs.prepare.outputs.target_ref }}
+      target_sha: ${{ needs.prepare.outputs.target_sha }}
+    secrets:
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
+      AGENTSWEB_SSH_PUBLIC_KEY: ${{ secrets.AGENTSWEB_SSH_PUBLIC_KEY }}
