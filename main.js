@@ -58,6 +58,7 @@ let selectedHandUid = null;
 let attacking = new Set();
 let profile = {};
 let currentDeck = null;
+const cardElCache = new Map();
 let runState = null;
 let difficulty = 'normal';
 
@@ -67,6 +68,8 @@ function loadProfile() {
 function saveProfile() { localStorage.setItem('chimera_profile', JSON.stringify(profile)); }
 function ensureProfile() {
   profile.xp = profile.xp || 0;
+  profile.gold = profile.gold || 100;
+  profile.gems = profile.gems || 5;
   profile.level = profile.level || 1;
   profile.unlocked = profile.unlocked || {};
   profile.stats = profile.stats || { wins:0, losses:0, unitsPlayed:0 };
@@ -387,6 +390,7 @@ function canPlayCard(p, inst) {
 function playCard(inst, ev) {
   sfx(660, 0.1, 'triangle', 0.05);
   spawnSparks(ev);
+  if (navigator.vibrate) navigator.vibrate(20);
   const p = active();
   if (G.turn !== 'player') return;
   if (!p.hand.find(x => x.uid === inst.uid)) return;
@@ -741,6 +745,8 @@ function render() {
   if (!G) return;
   // topbar
   const _on = $('opp-name'); if (_on) _on.textContent = G.ai.name + ' (' + G.ai.faction + ')';
+  const _op = document.getElementById('opp-passive'); if (_op) _op.textContent = (G.ai.faction||'').slice(0,12);
+  const _sp = document.getElementById('self-passive'); if (_sp) _sp.textContent = (G.player.faction||'').slice(0,12);
   const _os = $('opp-sanity'); if (_os) _os.textContent = G.ai.sanity;
   const oppFill = document.getElementById('opp-lp-fill'); if (oppFill) oppFill.style.width = Math.max(0, Math.min(100, (G.ai.sanity/30)*100)) + '%';
   const _oe = $('opp-essence'); if (_oe) _oe.textContent = G.ai.essence;
@@ -782,6 +788,7 @@ function render() {
   const handEl = document.getElementById('hand');
   if (!handEl) return;
   handEl.innerHTML = '';
+  handEl.style.display = 'flex'; handEl.style.gap = '6px'; handEl.style.overflowX = 'auto';
   G.player.hand.forEach(inst => {
     const el = cardEl(inst, true);
     if (G.turn === 'player' && canPlayCard(G.player, inst)) el.classList.add('playable');
@@ -854,6 +861,7 @@ function unitEl(u) {
     <div class="art">${u.card.faction ? u.card.faction.charAt(0) : '?'}</div>
     <div class="name">${u.card.name}</div>
     <div class="stats">${effAtk(u)}/${effHp(u) - (u.damage||0)}</div>
+    ${u.equipped && u.equipped.length ? '<div class="kw">+' + u.equipped.join(',') + '</div>' : ''}
     <div class="kw">${(u.card.keywords||[]).join(', ')}</div>
   `;
   return el;
@@ -877,6 +885,7 @@ async function init() {
     currentDeck = loadDeck();
     renderProfileBar();
     populateFactions();
+    document.querySelectorAll('button').forEach(b => { if (!b.getAttribute('aria-label')) b.setAttribute('aria-label', b.textContent || 'button'); });
     const _pb = document.getElementById('play-btn'); if (_pb) _pb.textContent = t('play');
     const _cb = document.getElementById('collection-btn'); if (_cb) _cb.textContent = t('collection');
     const _db = document.getElementById('deckbuilder-btn'); if (_db) _db.textContent = t('deckbuilder');
@@ -1093,7 +1102,7 @@ function renderProfileBar() {
   const el = document.getElementById('profile-bar');
   if (!el) return;
   el.className = 'profile-bar';
-  el.textContent = `Level ${profile.level} | XP ${profile.xp}/${xpForLevel(profile.level)} | Wins ${profile.stats.wins} | Losses ${profile.stats.losses}`;
+  el.textContent = `Level ${profile.level} | XP ${profile.xp}/${xpForLevel(profile.level)} | Gold ${profile.gold||0} | Gems ${profile.gems||0} | Wins ${profile.stats.wins} | Losses ${profile.stats.losses}`;
 }
 
 function populateFactions() {
@@ -1153,8 +1162,10 @@ function checkAchievements() {
 
 // Screen navigation
 function showScreen(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
   document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
-  document.getElementById(id).classList.remove('hidden');
+  el.classList.remove('hidden');
 }
 
 const _collection_btn = document.getElementById('collection-btn'); if (_collection_btn) _collection_btn.addEventListener('click', () => { renderCollection(); showScreen('collection-screen'); });
@@ -1184,7 +1195,7 @@ function renderCollection() {
   document.getElementById('coll-count').textContent = filtered.length + ' cards (page ' + (collPage+1) + '/' + totalPages + ')';
   // pagination controls
   let pag = document.getElementById('coll-pag');
-  if (!pag) { pag = document.createElement('div'); pag.id='coll-pag'; pag.style.display='flex'; pag.style.gap='8px'; pag.style.justifyContent='center'; pag.style.padding='8px'; document.getElementById('collection-screen').appendChild(pag); }
+  if (!pag) { pag = document.createElement('div'); pag.id='coll-pag'; pag.style.display='flex'; pag.style.gap='8px'; pag.style.justifyContent='center'; pag.style.padding='8px'; const cs = document.getElementById('collection-screen'); if (cs) cs.appendChild(pag); }
   pag.innerHTML = '';
   const prev = document.createElement('button'); prev.textContent='Prev'; prev.disabled = collPage===0; prev.addEventListener('click', ()=>{ collPage--; renderCollection(); }); pag.appendChild(prev);
   const next = document.createElement('button'); next.textContent='Next'; next.disabled = collPage>=totalPages-1; next.addEventListener('click', ()=>{ collPage++; renderCollection(); }); pag.appendChild(next);
@@ -1225,7 +1236,7 @@ function renderDeckCurrent() {
   });
   // mana curve
   let curve = document.getElementById('deck-curve');
-  if (!curve) { curve = document.createElement('div'); curve.id='deck-curve'; curve.style.padding='8px'; document.querySelector('.deck-current').appendChild(curve); }
+  if (!curve) { curve = document.createElement('div'); curve.id='deck-curve'; curve.style.padding='8px'; const dc = document.querySelector('.deck-current'); if (dc) dc.appendChild(curve); }
   const counts = {};
   editingDeck.forEach(id => { const c = allCards.find(x=>x.id===id); if (c) counts[c.cost] = (counts[c.cost]||0)+1; });
   const avg = editingDeck.length ? (editingDeck.map(id=> (allCards.find(c=>c.id===id)||{}).cost||0).reduce((a,b)=>a+b,0)/editingDeck.length).toFixed(2) : 0;
@@ -1236,7 +1247,7 @@ const _deck_faction = document.getElementById('deck-faction'); if (_deck_faction
 // clear deck button
 const clearBtn = document.createElement('button');
 clearBtn.textContent = 'Clear Deck';
-document.querySelector('#deckbuilder-screen .topbar').appendChild(clearBtn);
+const dbt = document.querySelector('#deckbuilder-screen .topbar'); if (dbt) dbt.appendChild(clearBtn);
 clearBtn.addEventListener('click', () => { editingDeck = []; renderDeckCurrent(); });
 const _save_deck_btn = document.getElementById('save-deck-btn'); if (_save_deck_btn) _save_deck_btn.addEventListener('click', () => {
   if (editingDeck.length < 40) { alert('Deck must have 40 cards'); return; }
@@ -1256,7 +1267,7 @@ function renderQuests() {
     dq.appendChild(div);
   });
   const stats = document.createElement('div'); stats.innerHTML = '<h3>Stats</h3><p>Wins: ' + profile.stats.wins + ' | Losses: ' + profile.stats.losses + ' | Units played: ' + profile.stats.unitsPlayed + '</p>';
-  document.querySelector('.quests-layout').appendChild(stats);
+  const ql = document.querySelector('.quests-layout'); if (ql) ql.appendChild(stats);
   const ach = document.getElementById('achievements');
   ach.innerHTML = '';
   const defs = [
@@ -1404,6 +1415,8 @@ gameOver = function(title, msg) {
   if (won) {
     profile.stats.wins++;
     addXP(G && G.snapped ? 120 : 60, 'win');
+    grantReward('gold', 50, 'win');
+    if (Math.random() < 0.3) grantReward('gems', 1, 'win');
     updateQuest('wins', 1);
     checkAchievements();
     if (G && G.roguelike) {
@@ -1415,6 +1428,7 @@ gameOver = function(title, msg) {
   } else {
     profile.stats.losses++;
     addXP(G && G.snapped ? 40 : 20, 'loss');
+    grantReward('gold', 15, 'loss');
   }
   saveProfile();
   renderProfileBar();
@@ -1541,8 +1555,7 @@ document.addEventListener('mouseout', (e) => {
 const snapBtn = document.createElement('button');
 snapBtn.id = 'snap-btn';
 snapBtn.textContent = 'Snap (Double Stakes)';
-const controls = document.querySelector('.controls');
-if (controls) controls.appendChild(snapBtn);
+const controls = document.querySelector('.controls'); if (controls) controls.appendChild(snapBtn);
 snapBtn.addEventListener('click', () => {
   if (!G || G.turn !== 'player') return;
   G.snapped = true;
@@ -1724,66 +1737,8 @@ startTurn = function(who) {
 };
 
 // Three.js background (optional enhancement)
-async function initThreeBg() {
-  try {
-    const THREE = await import('three');
-    const canvas = document.createElement('canvas');
-    canvas.style.position = 'fixed';
-    canvas.style.inset = '0';
-    canvas.style.zIndex = '0';
-    canvas.style.pointerEvents = 'none';
-    document.body.prepend(canvas);
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = false;
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x0a0a12, 8, 20);
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 0, 10);
-    // lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
-    scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5, 5, 5);
-    dir.castShadow = true;
-    scene.add(dir);
-    const point = new THREE.PointLight(0x7c3aed, 1, 20);
-    point.position.set(-5, -3, 4);
-    scene.add(point);
-    // board plane
-    const boardGeo = new THREE.PlaneGeometry(18, 10);
-    const boardMat = new THREE.MeshStandardMaterial({ color: 0x3b2416, transparent: true, opacity: 0.5, roughness: 0.9, metalness: 0.1 });
-    const board = new THREE.Mesh(boardGeo, boardMat);
-    board.position.z = -2;
-    scene.add(board);
-    // floating card planes
-    const geo = new THREE.BoxGeometry(1.2, 1.7, 0.05);
-    const meshes = [];
-    for (let i=0;i<12;i++) {
-      const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5), roughness: 0.3, metalness: 0.6, transparent: true, opacity: 0.5 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set((Math.random()-0.5)*16, (Math.random()-0.5)*10, (Math.random()-0.5)*6);
-      mesh.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
-      mesh.castShadow = true;
-      scene.add(mesh);
-      meshes.push(mesh);
-    }
-    const clock = new THREE.Clock();
-    function animate() {
-      const t = clock.getElapsedTime();
-      meshes.forEach((m, i) => {
-        m.rotation.x += 0.003;
-        m.rotation.y += 0.004;
-        m.position.y += Math.sin(t + i) * 0.002;
-      });
-      renderer.render(scene, camera);
-      requestAnimationFrame(animate);
-    }
-    animate();
-    window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); });
-  } catch(e) { console.warn('Three.js bg failed', e); }
-}
-initThreeBg();
+// Three.js background disabled to remove WebGL warnings
+
 
 
 // Help overlay
@@ -1801,7 +1756,7 @@ cbBtn.addEventListener('click', () => {
   document.body.classList.toggle('colorblind');
   localStorage.setItem('chimera_cb', document.body.classList.contains('colorblind') ? '1' : '0');
 });
-document.querySelector('.title-buttons').appendChild(cbBtn);
+const tb = document.querySelector('.title-buttons'); if (tb) tb.appendChild(cbBtn);
 const chaosBtn = document.createElement('button');
 chaosBtn.textContent = 'Chaos Mode: ' + (localStorage.getItem('chimera_chaos')==='1'?'ON':'OFF');
 chaosBtn.addEventListener('click', () => {
@@ -1809,7 +1764,7 @@ chaosBtn.addEventListener('click', () => {
   localStorage.setItem('chimera_chaos', on ? '1' : '0');
   chaosBtn.textContent = 'Chaos Mode: ' + (on?'ON':'OFF');
 });
-document.querySelector('.title-buttons').appendChild(chaosBtn);
+const tb2 = document.querySelector('.title-buttons'); if (tb2) tb2.appendChild(chaosBtn);
 if (localStorage.getItem('chimera_cb') === '1') document.body.classList.add('colorblind');
 
 // Faction ability button
@@ -1817,7 +1772,7 @@ const factionAbilityBtn = document.createElement('button');
 factionAbilityBtn.id = 'faction-ability-btn';
 factionAbilityBtn.textContent = 'Faction Ability';
 const controls2 = document.querySelector('.controls');
-if (controls2) controls2.appendChild(factionAbilityBtn);
+const c2 = document.querySelector('.controls'); if (c2) c2.appendChild(factionAbilityBtn);
 factionAbilityBtn.addEventListener('click', () => {
   if (!G || G.turn !== 'player') return;
   const p = G.player;
@@ -1958,7 +1913,7 @@ gameOver = function(title, msg) {
 
 function showTargetFaceButton() {
   let btn = document.getElementById('target-face-btn');
-  if (!btn) { btn = document.createElement('button'); btn.id='target-face-btn'; btn.textContent='Target Face'; document.querySelector('.controls').appendChild(btn); }
+  if (!btn) { btn = document.createElement('button'); btn.id='target-face-btn'; btn.textContent='Target Face'; const ctf = document.querySelector('.controls'); if (ctf) ctf.appendChild(btn); }
   btn.style.display = '';
   btn.onclick = () => {
     if (!G.targeting) return;
@@ -1990,3 +1945,49 @@ document.addEventListener('click', (e) => {
   render();
   checkGameOver();
 });
+
+// Tooltip system
+document.addEventListener('mouseover', (e) => {
+  const slot = e.target.closest('.card-slot, .card');
+  const tip = document.getElementById('tooltip');
+  if (!slot || !tip) { if (tip) tip.style.display='none'; return; }
+  const name = slot.getAttribute('data-name') || slot.textContent.trim().slice(0,40);
+  tip.innerHTML = `<b>${name}</b><br>Click to interact.`;
+  tip.style.display = 'block';
+  tip.style.left = (e.clientX + 12) + 'px';
+  tip.style.top = (e.clientY + 12) + 'px';
+});
+document.addEventListener('mousemove', (e) => {
+  const tip = document.getElementById('tooltip');
+  if (tip && tip.style.display === 'block') {
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top = (e.clientY + 12) + 'px';
+  }
+});
+document.addEventListener('mouseout', (e) => {
+  const tip = document.getElementById('tooltip');
+  if (tip && !e.target.closest('.card-slot, .card')) tip.style.display = 'none';
+});
+
+function grantReward(type, amount, reason) {
+  if (type === 'gold') { profile.gold = (profile.gold||0) + amount; }
+  if (type === 'gems') { profile.gems = (profile.gems||0) + amount; }
+  if (type === 'xp') { addXP(amount, reason); }
+  saveProfile();
+  renderProfileBar();
+  log('Reward: +' + amount + ' ' + type + ' (' + (reason||'') + ')');
+}
+
+// Shop
+const shopBtn = document.getElementById('shop-btn');
+if (shopBtn) shopBtn.addEventListener('click', () => openShop());
+function openShop() {
+  const items = [
+    { name: 'Random Common', cost: 20, type: 'gold', action: () => { const c = allCards.filter(x=>x.rarity==='Common')[Math.floor(Math.random()*allCards.filter(x=>x.rarity==='Common').length)]; profile.unlocked[c.id]=true; saveProfile(); alert('Unlocked ' + c.name); } },
+    { name: 'Random Rare', cost: 5, type: 'gems', action: () => { const c = allCards.filter(x=>x.rarity==='Rare')[Math.floor(Math.random()*allCards.filter(x=>x.rarity==='Rare').length)]; profile.unlocked[c.id]=true; saveProfile(); alert('Unlocked ' + c.name); } },
+  ];
+  const choice = prompt('Shop:\\n1. Random Common (20 gold)\\n2. Random Rare (5 gems)\\nEnter 1 or 2');
+  if (choice === '1' && (profile.gold||0) >= 20) { profile.gold -= 20; items[0].action(); saveProfile(); renderProfileBar(); }
+  else if (choice === '2' && (profile.gems||0) >= 5) { profile.gems -= 5; items[1].action(); saveProfile(); renderProfileBar(); }
+  else alert('Not enough currency or invalid choice');
+}

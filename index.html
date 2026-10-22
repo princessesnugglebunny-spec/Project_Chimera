@@ -1,232 +1,224 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Project Chimera - Digital Card Game</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🃏</text></svg>">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Chimera - Digital Card Game</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-<div id="app">
-  <canvas id="bg-canvas"></canvas>
+<body class="min-h-screen flex flex-col justify-between relative">
+<div class="faction-bg"></div>
 
-  <section id="title-screen" class="screen">
-    <h1>Project Chimera</h1>
-    <p class="subtitle">The Sundered Cosmos Awaits</p>
-    <div class="title-controls">
-      <label>Faction: <select id="faction-select"></select></label>
-      <label>Difficulty: <select id="difficulty-select">
-        <option value="easy">Easy</option>
-        <option value="normal" selected>Normal</option>
-        <option value="hard">Hard</option>
-      </select></label>
+
+
+<main id="game-screen" class="screen hidden board-viewport flex-1 flex items-center justify-center p-2 relative z-10 my-auto">
+  <div id="boardContainer" class="board-container w-full max-w-6xl flex flex-col items-center tight-gap">
+
+    <!-- Enemy Hand -->
+    <div class="flex justify-center items-center gap-1.5 py-1 px-3 bg-red-950/30 rounded-lg border border-red-900/30 backdrop-blur-sm">
+      <span class="text-[10px] font-bold tracking-widest text-red-400 uppercase mr-1">Enemy Hand</span>
+      <div class="flex gap-1.5" id="opp-hand-scroll"></div>
     </div>
-    <div class="title-buttons">
-      <button id="play-btn">Play</button>
-      <button id="rogue-btn">Descent (Roguelike)</button>
-      <button id="draft-btn">Draft Mode</button>
-      <button id="spectate-btn">Spectate (CPU vs CPU)</button>
-      <button id="hotseat-btn">Hot-Seat 2P</button>
-      <button id="collection-btn">Collection</button>
-      <button id="deckbuilder-btn">Deck Builder</button>
-      <button id="quests-btn">Quests & Achievements</button>
-      <button id="help-btn">How to Play</button>
-    </div>
-    <p id="loading">Loading cards...</p>
-    <div id="profile-bar"></div>
-  </section>
 
-  <section id="collection-screen" class="screen hidden">
-    <header class="topbar">
-      <button id="back-from-collection">Back</button>
-      <span>Collection</span>
-      <span id="coll-count"></span>
-    </header>
-    <div class="filters">
-      <select id="coll-faction"></select>
-      <input id="coll-search" placeholder="Search..." />
-    </div>
-    <div id="collection-grid" class="card-grid"></div>
-    <button id="dust-btn">Dust 4 Commons → 1 Rare</button>
-  </section>
-
-  <section id="deckbuilder-screen" class="screen hidden">
-    <header class="topbar">
-      <button id="back-from-deck">Back</button>
-      <span>Deck Builder</span>
-      <span id="deck-count">0/40</span>
-      <button id="save-deck-btn">Save Deck</button>
-    </header>
-    <div class="deckbuilder-layout">
-      <div class="deck-pool">
-        <select id="deck-faction"></select>
-        <div id="deck-pool-grid" class="card-grid"></div>
-      </div>
-      <div class="deck-current">
-        <h3>Current Deck</h3>
-        <div id="deck-current-list"></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="quests-screen" class="screen hidden">
-    <header class="topbar">
-      <button id="back-from-quests">Back</button>
-      <span>Quests & Achievements</span>
-    </header>
-    <div class="quests-layout">
-      <div>
-        <h3>Daily Quests</h3>
-        <div id="daily-quests"></div>
-      </div>
-      <div>
-        <h3>Achievements</h3>
-        <div id="achievements"></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="game-screen" class="screen hidden">
-    <div id="playmat" class="playmat">
-      <div class="grid grid-cols-12 gap-2 mb-2 items-center">
-        <div class="col-span-3 faction-box enemy">
-          <div class="faction-icon">A</div>
-          <div>
-            <span class="faction-label">Enemy Faction</span>
-            <h4 class="faction-name" id="opp-name">AI</h4>
-          </div>
-          <div class="passive-box">
-            <span class="passive-label">Passive</span>
-            <span class="passive-val">Hellfire</span>
-          </div>
-        </div>
-        <div class="col-span-5 sanity-box">
-          <div class="flex justify-between items-center mb-0.5">
-            <span class="sanity-label"><i class="fa-solid fa-brain"></i> Enemy Sanity</span>
-            <span id="opp-sanity" class="sanity-val">30</span>
-          </div>
-          <div class="lp-meter"><div class="lp-fill enemy-fill" id="opp-lp-fill"></div></div>
-        </div>
-        <div class="col-span-4 hand-box enemy">
-          <span class="hand-label"><i class="fa-solid fa-hand-fist"></i> Hand</span>
-          <div class="hand-scroll" id="opp-hand-scroll"></div>
+    <!-- Enemy Header -->
+    <div class="w-full flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/60 rounded border border-red-900/30 backdrop-blur-sm">
+      <div class="card-slot enemy-zone !h-10 !w-28 flex-row gap-2">
+        <i class="fa-solid fa-volcano text-red-500"></i>
+        <div class="text-left">
+          <div class="text-[9px] text-slate-400 uppercase leading-none">Faction</div>
+          <div class="text-xs font-bold text-red-400 leading-tight" id="opp-name">AI</div>
         </div>
       </div>
-
-      <div class="grid grid-cols-6 gap-2 mb-2">
-        <div class="slot essence-slot">
-          <span class="slot-label">Essence</span>
-          <div class="essence-val" id="opp-essence">0</div>
-          <div class="essence-btns">
-            <button onclick="adjustEssence('ai',-1)">-</button>
-            <button onclick="adjustEssence('ai',1)">+</button>
-          </div>
+      <div class="flex-1 max-w-md flex flex-col items-center">
+        <div class="flex justify-between w-full text-[11px] font-bold text-red-300 mb-0.5">
+          <span><i class="fa-solid fa-brain text-purple-400 mr-1"></i>ENEMY SANITY</span>
+          <span id="opp-sanity">30</span>
         </div>
-        <div class="slot card-slot enemy" id="opp-back-0"></div>
-        <div class="slot card-slot enemy" id="opp-back-1"></div>
-        <div class="slot card-slot enemy" id="opp-back-2"></div>
-        <div class="slot card-slot enemy" id="opp-back-3"></div>
-        <div class="slot pile-slot" id="opp-deck-pile">Deck</div>
-      </div>
-
-      <div class="grid grid-cols-6 gap-2 mb-2">
-        <div class="slot pile-slot" id="opp-discard-pile">GY</div>
-        <div class="slot card-slot enemy" id="opp-front-0"></div>
-        <div class="slot card-slot enemy" id="opp-front-1"></div>
-        <div class="slot card-slot enemy" id="opp-front-2"></div>
-        <div class="slot card-slot enemy" id="opp-front-3"></div>
-        <div class="slot card-slot enemy pact-slot" id="opp-pact">Pact</div>
-      </div>
-
-      <div class="center-bar">
-        <button id="cast-btn" class="cast-btn"><i class="fa-solid fa-rotate"></i> C.A.S.T.</button>
-        <div class="realm-slot" id="realm-slot">Realm</div>
-        <div class="log-box">
-          <i class="fa-solid fa-scroll"></i>
-          <div id="log" aria-live="polite"></div>
-        </div>
-        <button id="attack-btn" class="action-btn">Attack</button>
-        <button id="endturn-btn" class="action-btn end">End Turn</button>
-      </div>
-
-      <div class="grid grid-cols-6 gap-2 mb-2">
-        <div class="slot card-slot pact-slot" id="self-pact">Pact</div>
-        <div class="slot card-slot" id="self-front-0"></div>
-        <div class="slot card-slot" id="self-front-1"></div>
-        <div class="slot card-slot" id="self-front-2"></div>
-        <div class="slot card-slot" id="self-front-3"></div>
-        <div class="slot pile-slot" id="self-discard-pile">GY</div>
-      </div>
-
-      <div class="grid grid-cols-6 gap-2 mb-2">
-        <div class="slot pile-slot" id="self-deck-pile">Deck</div>
-        <div class="slot card-slot" id="self-back-0"></div>
-        <div class="slot card-slot" id="self-back-1"></div>
-        <div class="slot card-slot" id="self-back-2"></div>
-        <div class="slot card-slot" id="self-back-3"></div>
-        <div class="slot essence-slot">
-          <span class="slot-label">Essence</span>
-          <div class="essence-val" id="self-essence">0</div>
-          <div class="essence-btns">
-            <button onclick="adjustEssence('player',-1)">-</button>
-            <button onclick="adjustEssence('player',1)">+</button>
-          </div>
+        <div class="w-full h-3 rounded-full sanity-bar-track p-0.5 relative cursor-pointer">
+          <div id="opp-lp-fill" class="h-full bg-gradient-to-r from-purple-700 to-red-500 rounded-full transition-all duration-300" style="width:100%;"></div>
         </div>
       </div>
-
-      <div class="grid grid-cols-12 gap-2 items-center">
-        <div class="col-span-3 faction-box self">
-          <div class="faction-icon">B</div>
-          <div>
-            <span class="faction-label">Your Faction</span>
-            <h4 class="faction-name" id="self-name">You</h4>
-          </div>
-          <div class="passive-box">
-            <span class="passive-label">Passive</span>
-            <span class="passive-val">Divine</span>
-          </div>
-        </div>
-        <div class="col-span-5 sanity-box">
-          <div class="flex justify-between items-center mb-0.5">
-            <span class="sanity-label"><i class="fa-solid fa-brain"></i> Player Sanity</span>
-            <span id="self-sanity" class="sanity-val">30</span>
-          </div>
-          <div class="lp-meter"><div class="lp-fill self-fill" id="self-lp-fill"></div></div>
-        </div>
-        <div class="col-span-4 hand-box self">
-          <span class="hand-label"><i class="fa-solid fa-hand"></i> Your Hand</span>
-          <div class="hand-scroll" id="hand"></div>
+      <div class="card-slot enemy-zone !h-10 !w-28 flex-row gap-2">
+        <i class="fa-solid fa-fire text-amber-500"></i>
+        <div class="text-left">
+          <div class="text-[9px] text-slate-400 uppercase leading-none">Passive</div>
+          <div class="text-xs font-bold text-amber-300 leading-tight">Hellfire</div>
         </div>
       </div>
     </div>
-  </section>
-  <div id="gameover" class="overlay hidden">
-    <div class="overlay-card">
-      <h2 id="gameover-title">Game Over</h2>
-      <p id="gameover-msg"></p>
-      <div id="reward-info"></div>
-      <button id="restart-btn">Continue</button>
+
+    <!-- Enemy Back Row -->
+    <div class="flex justify-center items-center tight-gap">
+      <div class="card-slot enemy-zone" id="opp-essence-slot">
+        <i class="fa-solid fa-gem slot-icon text-purple-400"></i>
+        <span class="slot-label">Essence</span>
+        <span id="opp-essence" class="text-sm font-bold text-purple-300 mt-1">0</span>
+      </div>
+      <div class="card-slot enemy-zone" id="opp-back-0"></div>
+      <div class="card-slot enemy-zone" id="opp-back-1"></div>
+      <div class="card-slot enemy-zone" id="opp-back-2"></div>
+      <div class="card-slot enemy-zone" id="opp-back-3"></div>
+      <div class="card-slot enemy-zone !border-amber-600/50 bg-amber-950/20" id="opp-deck-pile">
+        <i class="fa-solid fa-box-archive slot-icon text-amber-500"></i>
+        <span class="slot-label">Deck</span>
+      </div>
     </div>
+
+    <!-- Enemy Front Row -->
+    <div class="flex justify-center items-center tight-gap">
+      <div class="card-slot enemy-zone !border-slate-600" id="opp-discard-pile">
+        <i class="fa-solid fa-skull slot-icon text-slate-400"></i>
+        <span class="slot-label">GY</span>
+      </div>
+      <div class="card-slot enemy-zone" id="opp-front-0"></div>
+      <div class="card-slot enemy-zone" id="opp-front-1"></div>
+      <div class="card-slot enemy-zone" id="opp-front-2"></div>
+      <div class="card-slot enemy-zone" id="opp-front-3"></div>
+      <div class="card-slot enemy-zone !border-red-500/60" id="opp-pact">Pact</div>
+    </div>
+
+    <!-- Center Bar -->
+    <div class="w-full max-w-4xl py-1 px-4 bg-slate-950/90 rounded-full border border-amber-500/40 shadow-lg backdrop-blur-md flex items-center justify-between my-1 relative overflow-hidden">
+      <div class="flex items-center gap-2">
+        <div class="card-slot card-slot-sideways !h-8 !w-16 !min-h-0 bg-amber-950/40 border-amber-500/60" id="realm-slot">
+          <span class="text-[8px] font-bold text-amber-300 uppercase tracking-tighter">REALM</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="cast-btn" class="px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 font-extrabold text-xs tracking-wider uppercase">C.A.S.T.</button>
+        <button id="turn-indicator" class="text-xs px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500 text-cyan-300 font-bold">PLAYER TURN</button>
+        <button id="attack-btn" class="text-xs px-2 py-0.5 rounded bg-red-950 border border-red-500 text-red-300 font-bold">Attack</button>
+        <button id="endturn-btn" class="text-xs px-2 py-0.5 rounded bg-green-950 border border-green-500 text-green-300 font-bold">End Turn</button>
+      </div>
+      <div class="w-48 sm:w-64 h-6 bg-slate-900/90 rounded border border-slate-700/80 px-2 py-0.5 text-[10px] text-slate-300 custom-scroll overflow-y-auto flex items-center" id="log"></div>
+    </div>
+
+    <!-- Player Front Row -->
+    <div class="flex justify-center items-center tight-gap">
+      <div class="card-slot player-zone !border-cyan-500/60" id="self-pact">Pact</div>
+      <div class="card-slot player-zone" id="self-front-0"></div>
+      <div class="card-slot player-zone" id="self-front-1"></div>
+      <div class="card-slot player-zone" id="self-front-2"></div>
+      <div class="card-slot player-zone" id="self-front-3"></div>
+      <div class="card-slot player-zone !border-slate-600" id="self-discard-pile">GY</div>
+    </div>
+
+    <!-- Player Back Row -->
+    <div class="flex justify-center items-center tight-gap">
+      <div class="card-slot player-zone !border-amber-600/50 bg-amber-950/20" id="self-deck-pile">Deck</div>
+      <div class="card-slot player-zone" id="self-back-0"></div>
+      <div class="card-slot player-zone" id="self-back-1"></div>
+      <div class="card-slot player-zone" id="self-back-2"></div>
+      <div class="card-slot player-zone" id="self-back-3"></div>
+      <div class="card-slot player-zone !border-purple-500/40" id="self-essence-slot">
+        <i class="fa-solid fa-gem slot-icon text-purple-400"></i>
+        <span class="slot-label">Essence</span>
+        <span id="self-essence" class="text-sm font-bold text-purple-300 mt-1">0</span>
+      </div>
+    </div>
+
+    <!-- Player Header -->
+    <div class="w-full flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/60 rounded border border-cyan-900/30 backdrop-blur-sm">
+      <div class="card-slot player-zone !h-10 !w-28 flex-row gap-2">
+        <i class="fa-solid fa-feather-pointed text-cyan-400"></i>
+        <div class="text-left">
+          <div class="text-[9px] text-slate-400 uppercase leading-none">Faction</div>
+          <div class="text-xs font-bold text-cyan-300 leading-tight" id="self-name">You</div>
+        </div>
+      </div>
+      <div class="flex-1 max-w-md flex flex-col items-center">
+        <div class="flex justify-between w-full text-[11px] font-bold text-cyan-300 mb-0.5">
+          <span><i class="fa-solid fa-brain text-purple-400 mr-1"></i>PLAYER SANITY</span>
+          <span id="self-sanity">30</span>
+        </div>
+        <div class="w-full h-3 rounded-full sanity-bar-track p-0.5 relative cursor-pointer">
+          <div id="self-lp-fill" class="h-full bg-gradient-to-r from-purple-600 to-cyan-400 rounded-full transition-all duration-300" style="width:100%;"></div>
+        </div>
+      </div>
+      <div class="card-slot player-zone !h-10 !w-28 flex-row gap-2">
+        <i class="fa-solid fa-sun text-amber-400"></i>
+        <div class="text-left">
+          <div class="text-[9px] text-slate-400 uppercase leading-none">Passive</div>
+          <div class="text-xs font-bold text-amber-300 leading-tight">Divinity</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Player Hand -->
+    <div class="flex justify-center items-center gap-1.5 py-1 px-3 bg-cyan-950/30 rounded-lg border border-cyan-900/30 backdrop-blur-sm">
+      <span class="text-[10px] font-bold tracking-widest text-cyan-400 uppercase mr-1">Your Hand</span>
+      <div class="flex gap-1.5" id="hand"></div>
+    </div>
+
   </div>
+</main>
 
-  <div id="tutorial" class="overlay hidden">
-    <div class="overlay-card">
-      <h2 id="tut-title">Welcome</h2>
-      <p id="tut-text"></p>
-      <button id="tut-next">Next</button>
-      <button id="tut-skip">Skip</button>
-    </div>
+<!-- Other screens omitted for brevity; keep title/collection/etc -->
+<section id="title-screen" class="screen">
+  <h1 class="cinzel-font text-5xl text-amber-400">Project Chimera</h1>
+  <p class="text-slate-400">The Sundered Cosmos Awaits</p>
+  <div class="flex gap-2 flex-wrap justify-center">
+    <select id="faction-select" class="bg-slate-800 border border-slate-600 rounded px-2 py-1"></select>
+    <select id="difficulty-select" class="bg-slate-800 border border-slate-600 rounded px-2 py-1">
+      <option value="easy">Easy</option>
+      <option value="normal" selected>Normal</option>
+      <option value="hard">Hard</option>
+    </select>
   </div>
+  <div class="flex gap-2 flex-wrap justify-center">
+    <button id="play-btn" class="px-4 py-2 bg-amber-600 text-slate-950 font-bold rounded">Play</button>
+    <button id="rogue-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Descent</button>
+    <button id="draft-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Draft</button>
+    <button id="spectate-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Spectate</button>
+    <button id="hotseat-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Hot-Seat</button>
+    <button id="collection-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Collection</button>
+    <button id="deckbuilder-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Deck</button>
+    <button id="quests-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Quests</button>
+    <button id="shop-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Shop</button>
+    <button id="help-btn" class="px-3 py-2 bg-slate-800 border border-slate-600 rounded">?</button>
+  </div>
+  <p id="loading" class="text-slate-400">Loading cards...</p>
+  <div id="profile-bar" class="text-slate-400 text-sm"></div>
+</section>
 
-  <div id="reward-pick" class="overlay hidden">
-    <div class="overlay-card">
-      <h2>Choose a Reward</h2>
-      <div id="reward-options" class="card-grid"></div>
-    </div>
+<div id="gameover" class="overlay hidden">
+  <div class="overlay-card">
+    <h2 id="gameover-title">Game Over</h2>
+    <p id="gameover-msg"></p>
+    <div id="reward-info"></div>
+    <button id="restart-btn">Continue</button>
   </div>
 </div>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+
+<div id="help-overlay" class="overlay hidden">
+  <div class="overlay-card">
+    <h2>How to Play</h2>
+    <p>Play cards by clicking them. Click units to select attackers, then Attack. End Turn passes. Shortcuts: 1-9 play, Enter end turn, Space attack.</p>
+    <button id="help-close">Close</button>
+  </div>
+</div>
+
+<div id="reward-pick" class="overlay hidden">
+  <div class="overlay-card">
+    <h2>Choose a Reward</h2>
+    <div id="reward-options" class="card-grid"></div>
+  </div>
+</div>
+
+<div id="tutorial" class="overlay hidden">
+  <div class="overlay-card">
+    <h2 id="tut-title">Welcome</h2>
+    <p id="tut-text"></p>
+    <button id="tut-skip">Skip</button>
+    <button id="tut-next">Next</button>
+  </div>
+</div>
+
 <script type="module" src="main.js"></script>
+<div id="tooltip" style="position:fixed;z-index:50;pointer-events:none;background:rgba(10,20,45,0.95);border:1px solid #1e3a8a;border-radius:8px;padding:8px;font-size:11px;max-width:240px;display:none;"></div>
 </body>
 </html>
