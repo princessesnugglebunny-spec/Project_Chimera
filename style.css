@@ -332,3 +332,37 @@ body { font-family: 'Rajdhani', sans-serif; background-color: #07090e; color: #e
 .slot-label { animation: shimmerText 2s ease-in-out infinite; }
 
 body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, rgba(255,215,0,0.03) 0%, transparent 70%); animation: pulseBg 8s ease-in-out infinite; pointer-events: none; z-index: 0; }
+
+/* Immersive visual upgrades */
+body::after { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.08) 0%, transparent 60%); pointer-events: none; z-index: 0; animation: shimmer 6s ease-in-out infinite; }
+.playmat { position: relative; z-index: 1; }
+.card-slot { position: relative; overflow: hidden; }
+.card-slot::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 50%); pointer-events: none; }
+.card-slot:hover::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, rgba(255,215,0,0.15) 0%, transparent 70%); pointer-events: none; animation: pulse 1s ease-in-out; }
+@keyframes pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+.sanity-bar-track { position: relative; overflow: hidden; }
+.sanity-bar-track::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); animation: shine 3s linear infinite; }
+@keyframes shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* Faction-specific backgrounds */
+body[data-faction="Goetia"] { background: radial-gradient(ellipse at 50% 0%, #2a0a0a 0%, #0a0a12 75%); }
+body[data-faction="Zodiac"] { background: radial-gradient(ellipse at 50% 0%, #0a1a3a 0%, #0a0a12 75%); }
+body[data-faction="Red Rose Templars"] { background: radial-gradient(ellipse at 50% 0%, #2a0a1a 0%, #0a0a12 75%); }
+body[data-faction="Coven"] { background: radial-gradient(ellipse at 50% 0%, #0a2a1a 0%, #0a0a12 75%); }
+body[data-faction="Oni"] { background: radial-gradient(ellipse at 50% 0%, #2a1a0a 0%, #0a0a12 75%); }
+body[data-faction="Chthonic"] { background: radial-gradient(ellipse at 50% 0%, #1a0a2a 0%, #0a0a12 75%); }
+body[data-faction="Celestial Host"] { background: radial-gradient(ellipse at 50% 0%, #2a2a0a 0%, #0a0a12 75%); }
+body[data-faction="Mesopotamian"] { background: radial-gradient(ellipse at 50% 0%, #1a1a0a 0%, #0a0a12 75%); }
+
+/* Faction-specific animations */
+body[data-faction="Goetia"] .card-slot:hover { box-shadow: 0 0 15px rgba(220,38,38,0.5); }
+body[data-faction="Zodiac"] .card-slot:hover { box-shadow: 0 0 15px rgba(59,130,246,0.5); }
+body[data-faction="Coven"] .card-slot:hover { box-shadow: 0 0 15px rgba(34,197,94,0.5); }
+body[data-faction="Oni"] .card-slot:hover { box-shadow: 0 0 15px rgba(239,68,68,0.5); }
+body[data-faction="Chthonic"] .card-slot:hover { box-shadow: 0 0 15px rgba(139,92,246,0.5); }
+body[data-faction="Celestial Host"] .card-slot:hover { box-shadow: 0 0 15px rgba(251,191,36,0.5); }
+body[data-faction="Mesopotamian"] .card-slot:hover { box-shadow: 0 0 15px rgba(120,53,15,0.5); }
+
+/* UX FX: button press */
+button:active { transform: scale(0.96); }
+.card-slot:active { transform: scale(0.95); }

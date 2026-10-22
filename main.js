@@ -21,7 +21,7 @@ function applyFactionTheme(faction) {
   const t = FACTION_THEMES[faction] || FACTION_THEMES['Neutral'];
   document.documentElement.style.setProperty('--accent', t.primary);
   document.documentElement.style.setProperty('--accent2', t.secondary);
-  // store for music
+  document.body.setAttribute('data-faction', faction);
   window.__factionBase = t.base;
   window.__factionType = t.type;
 }
@@ -236,7 +236,11 @@ function applyDamageUnit(u, amount, sourceOwner) {
   if (!u) return;
   const owner = ownerOf(u);
   const reduced = Math.max(0, amount - (u.armor||0));
-  u.damage = (u.damage || 0) + reduced;
+  if (hasKeyword(u,'Ward') && !u._wardUsed) { u._wardUsed = true; log(u.card.name + ' Ward prevents damage.'); return; }
+  let finalDmg = reduced;
+  // Deathtouch handled by caller? We'll check a global lastSourceHasDeathtouch
+  u.damage = (u.damage || 0) + finalDmg;
+  if (u.damage >= effHp(u)) { /* destroy */ }
   const o = ownerOf(u);
   if (o && o.faction === 'Host of the Damned' && !u.fallen && u.damage >= Math.ceil(effHp(u)/2)) { u.fallen = true; u.buffAtk = (u.buffAtk||0)+2; log(u.card.name + ' becomes Fallen!'); }
   // float damage number
@@ -556,7 +560,7 @@ function resolveInvocation(inst, player, opponent, chosenTarget) {
   }
 }
 
-function isPreemptive(u) { return hasKeyword(u, 'Preemptive') || hasKeyword(u, 'First Strike'); }
+function isPreemptive(u) { return hasKeyword(u, 'Preemptive') || hasKeyword(u, 'First Strike') || hasKeyword(u, 'Ambush'); }
 function hasDoubleStrike(u) { return hasKeyword(u, 'Double Strike'); }
 
 function declareAttack() {
@@ -601,7 +605,8 @@ function resolveCombat(attackerPlayer, defenderPlayer, attackers, blockMap) {
     const b = blockMap.get(a.uid);
     if (isPreemptive(a) || hasDoubleStrike(a)) {
       if (b && isAlive(b)) {
-        applyDamageUnit(b, effAtk(a), attackerPlayer);
+        if (hasKeyword(a,'Deathtouch')) { b.damage = effHp(b); destroyUnit(b, ownerOf(b)); }
+        else applyDamageUnit(b, effAtk(a), attackerPlayer);
       } else if (!b) {
         if (!a._dealtSanity) { defenderPlayer.sanity -= effAtk(a); a._dealtSanity = true; if (hasKeyword(a,'Lifesteal')) attackerPlayer.sanity += effAtk(a); }
       }
@@ -625,8 +630,9 @@ function resolveCombat(attackerPlayer, defenderPlayer, attackers, blockMap) {
     if (!purePreemptive && !ds) {
       if (b && isAlive(b)) {
         const before = effHp(b) - (b.damage||0);
-        applyDamageUnit(b, effAtk(a), attackerPlayer);
-        if (hasKeyword(a,'Overwhelm') && effAtk(a) > before) {
+        if (hasKeyword(a,'Deathtouch')) { b.damage = effHp(b); destroyUnit(b, ownerOf(b)); }
+        else applyDamageUnit(b, effAtk(a), attackerPlayer);
+        if ( (hasKeyword(a,'Overwhelm') || hasKeyword(a,'Trample')) && effAtk(a) > before) {
           defenderPlayer.sanity -= (effAtk(a) - before);
         }
         if (hasKeyword(a,'Lifesteal')) attackerPlayer.sanity += Math.min(effAtk(a), before);
@@ -637,8 +643,9 @@ function resolveCombat(attackerPlayer, defenderPlayer, attackers, blockMap) {
       // second hit
       if (b && isAlive(b)) {
         const before = effHp(b) - (b.damage||0);
-        applyDamageUnit(b, effAtk(a), attackerPlayer);
-        if (hasKeyword(a,'Overwhelm') && effAtk(a) > before) {
+        if (hasKeyword(a,'Deathtouch')) { b.damage = effHp(b); destroyUnit(b, ownerOf(b)); }
+        else applyDamageUnit(b, effAtk(a), attackerPlayer);
+        if ( (hasKeyword(a,'Overwhelm') || hasKeyword(a,'Trample')) && effAtk(a) > before) {
           defenderPlayer.sanity -= (effAtk(a) - before);
         }
       } else if (!b) {
@@ -655,10 +662,12 @@ function resolveCombat(attackerPlayer, defenderPlayer, attackers, blockMap) {
       const blockerPurePreemptive = hasKeyword(b,'Preemptive') || hasKeyword(b,'First Strike');
       const blockerDS = hasDoubleStrike(b);
       if (!blockerPurePreemptive && !blockerDS) {
-        applyDamageUnit(a, effAtk(b), defenderPlayer);
+        if (hasKeyword(b,'Deathtouch')) { a.damage = effHp(a); destroyUnit(a, ownerOf(a)); }
+        else applyDamageUnit(a, effAtk(b), defenderPlayer);
       } else if (blockerDS) {
         // second hit for double strike
-        applyDamageUnit(a, effAtk(b), defenderPlayer);
+        if (hasKeyword(b,'Deathtouch')) { a.damage = effHp(a); destroyUnit(a, ownerOf(a)); }
+        else applyDamageUnit(a, effAtk(b), defenderPlayer);
       }
     }
   });
@@ -1990,4 +1999,17 @@ function openShop() {
   if (choice === '1' && (profile.gold||0) >= 20) { profile.gold -= 20; items[0].action(); saveProfile(); renderProfileBar(); }
   else if (choice === '2' && (profile.gems||0) >= 5) { profile.gems -= 5; items[1].action(); saveProfile(); renderProfileBar(); }
   else alert('Not enough currency or invalid choice');
+}
+
+function advancePhase() {
+  if (!G || G.turn !== 'player') return;
+  const phases = ['draw','main','combat','end'];
+  const idx = phases.indexOf(G.phase);
+  const next = phases[(idx+1)%phases.length];
+  if (next === 'end') endTurn();
+  else { G.phase = next; render(); log('Phase: ' + next); }
+}
+function toggleTurn() {
+  if (!G) return;
+  if (G.turn === 'player') endTurn();
 }

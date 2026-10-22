@@ -82,7 +82,7 @@
     </div>
 
     <!-- Center Bar -->
-    <div class="w-full max-w-4xl py-1 px-4 bg-slate-950/90 rounded-full border border-amber-500/40 shadow-lg backdrop-blur-md flex items-center justify-between my-1 relative overflow-hidden">
+    <div class="w-full max-w-md py-1 px-2 bg-slate-950/90 rounded border border-amber-500/40 shadow-lg backdrop-blur-md flex items-center justify-between my-1 relative overflow-hidden" style="height: var(--card-h);">
       <div class="flex items-center gap-2">
         <div class="card-slot card-slot-sideways !h-8 !w-16 !min-h-0 bg-amber-950/40 border-amber-500/60" id="realm-slot">
           <span class="text-[8px] font-bold text-amber-300 uppercase tracking-tighter">REALM</span>
@@ -171,14 +171,16 @@
   </div>
   <div class="flex gap-2 flex-wrap justify-center">
     <button id="play-btn" class="px-4 py-2 bg-amber-600 text-slate-950 font-bold rounded">Play</button>
+    <button id="hotseat-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Hot-Seat</button>
     <button id="rogue-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Descent</button>
     <button id="draft-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Draft</button>
     <button id="spectate-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Spectate</button>
-    <button id="hotseat-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Hot-Seat</button>
+  </div>
+  <div class="flex gap-2 flex-wrap justify-center">
     <button id="collection-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Collection</button>
-    <button id="deckbuilder-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Deck</button>
-    <button id="quests-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Quests</button>
+    <button id="deckbuilder-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Deck Builder</button>
     <button id="shop-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Shop</button>
+    <button id="quests-btn" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Quests</button>
     <button id="help-btn" class="px-3 py-2 bg-slate-800 border border-slate-600 rounded">?</button>
   </div>
   <p id="loading" class="text-slate-400">Loading cards...</p>
