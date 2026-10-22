@@ -88,83 +88,119 @@
   </section>
 
   <section id="game-screen" class="screen hidden">
-    <header class="topbar">
-      <div id="faction-banner"></div>
-      <div class="player-info opponent">
-        <span id="opp-name">AI</span>
-        <span>LP: <b id="opp-sanity">30</b></span><div class="lp-meter"><div class="lp-fill" id="opp-lp-fill"></div></div>
-        <span>Essence: <b id="opp-essence">0</b></span>
-        <span>Deck: <b id="opp-deck">0</b></span>
-        <span>Hand: <b id="opp-hand">0</b></span>
-      </div>
-      <div class="turn-info">
-        <span id="turn-label">Turn 1 - Your Turn</span>
-        <span id="phase-label">Main Phase</span>
-        <span id="faction-state"></span>
-        <span id="run-info"></span>
-      </div>
-      <div class="player-info self">
-        <span id="self-name">You</span>
-        <span>LP: <b id="self-sanity">30</b></span><div class="lp-meter"><div class="lp-fill" id="self-lp-fill"></div></div>
-        <span>Essence: <b id="self-essence">0</b></span>
-        <span>Deck: <b id="self-deck">0</b></span>
-        <span>XP: <b id="self-xp">0</b></span>
-      </div>
-    </header>
-
-    <main class="battlefield">
-      <div class="edge-track left-track">
-        <div class="track-label">Sanity</div>
-        <div class="track" id="self-sanity-track"></div>
-      </div>
-      <div class="board-column">
-        <div class="side opponent-side">
-          <div class="zone-label">Opponent Support (2)</div>
-          <div class="board-row zones back" id="opp-back"></div>
-          <div class="zone-label">Opponent Units (5)</div>
-          <div class="board-row zones front" id="opp-front"></div>
-          <div class="piles">
-            <div class="pile" id="opp-deck-pile">Deck</div>
-            <div class="pile" id="opp-discard-pile">GY</div>
+    <div id="playmat" class="playmat">
+      <div class="grid grid-cols-12 gap-2 mb-2 items-center">
+        <div class="col-span-3 faction-box enemy">
+          <div class="faction-icon">A</div>
+          <div>
+            <span class="faction-label">Enemy Faction</span>
+            <h4 class="faction-name" id="opp-name">AI</h4>
+          </div>
+          <div class="passive-box">
+            <span class="passive-label">Passive</span>
+            <span class="passive-val">Hellfire</span>
           </div>
         </div>
-        <div class="center-zone">
-          <div id="field-zone" class="field-zone">Field Spell: none</div>
-          <div id="log" aria-live="polite" aria-atomic="false"></div>
+        <div class="col-span-5 sanity-box">
+          <div class="flex justify-between items-center mb-0.5">
+            <span class="sanity-label"><i class="fa-solid fa-brain"></i> Enemy Sanity</span>
+            <span id="opp-sanity" class="sanity-val">30</span>
+          </div>
+          <div class="lp-meter"><div class="lp-fill enemy-fill" id="opp-lp-fill"></div></div>
         </div>
-        <div class="side self-side">
-          <div class="zone-label">Your Units (5)</div>
-          <div class="board-row zones front" id="self-front"></div>
-          <div class="zone-label">Your Support (2)</div>
-          <div class="board-row zones back" id="self-back"></div>
-          <div class="piles">
-            <div class="pile" id="self-deck-pile">Deck</div>
-            <div class="pile" id="self-discard-pile">GY</div>
+        <div class="col-span-4 hand-box enemy">
+          <span class="hand-label"><i class="fa-solid fa-hand-fist"></i> Hand</span>
+          <div class="hand-scroll" id="opp-hand-scroll"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-6 gap-2 mb-2">
+        <div class="slot essence-slot">
+          <span class="slot-label">Essence</span>
+          <div class="essence-val" id="opp-essence">0</div>
+          <div class="essence-btns">
+            <button onclick="adjustEssence('ai',-1)">-</button>
+            <button onclick="adjustEssence('ai',1)">+</button>
+          </div>
+        </div>
+        <div class="slot card-slot enemy" id="opp-back-0"></div>
+        <div class="slot card-slot enemy" id="opp-back-1"></div>
+        <div class="slot card-slot enemy" id="opp-back-2"></div>
+        <div class="slot card-slot enemy" id="opp-back-3"></div>
+        <div class="slot pile-slot" id="opp-deck-pile">Deck</div>
+      </div>
+
+      <div class="grid grid-cols-6 gap-2 mb-2">
+        <div class="slot pile-slot" id="opp-discard-pile">GY</div>
+        <div class="slot card-slot enemy" id="opp-front-0"></div>
+        <div class="slot card-slot enemy" id="opp-front-1"></div>
+        <div class="slot card-slot enemy" id="opp-front-2"></div>
+        <div class="slot card-slot enemy" id="opp-front-3"></div>
+        <div class="slot card-slot enemy pact-slot" id="opp-pact">Pact</div>
+      </div>
+
+      <div class="center-bar">
+        <button id="cast-btn" class="cast-btn"><i class="fa-solid fa-rotate"></i> C.A.S.T.</button>
+        <div class="realm-slot" id="realm-slot">Realm</div>
+        <div class="log-box">
+          <i class="fa-solid fa-scroll"></i>
+          <div id="log" aria-live="polite"></div>
+        </div>
+        <button id="attack-btn" class="action-btn">Attack</button>
+        <button id="endturn-btn" class="action-btn end">End Turn</button>
+      </div>
+
+      <div class="grid grid-cols-6 gap-2 mb-2">
+        <div class="slot card-slot pact-slot" id="self-pact">Pact</div>
+        <div class="slot card-slot" id="self-front-0"></div>
+        <div class="slot card-slot" id="self-front-1"></div>
+        <div class="slot card-slot" id="self-front-2"></div>
+        <div class="slot card-slot" id="self-front-3"></div>
+        <div class="slot pile-slot" id="self-discard-pile">GY</div>
+      </div>
+
+      <div class="grid grid-cols-6 gap-2 mb-2">
+        <div class="slot pile-slot" id="self-deck-pile">Deck</div>
+        <div class="slot card-slot" id="self-back-0"></div>
+        <div class="slot card-slot" id="self-back-1"></div>
+        <div class="slot card-slot" id="self-back-2"></div>
+        <div class="slot card-slot" id="self-back-3"></div>
+        <div class="slot essence-slot">
+          <span class="slot-label">Essence</span>
+          <div class="essence-val" id="self-essence">0</div>
+          <div class="essence-btns">
+            <button onclick="adjustEssence('player',-1)">-</button>
+            <button onclick="adjustEssence('player',1)">+</button>
           </div>
         </div>
       </div>
-      <div class="edge-track right-track">
-        <div class="track-label">Essence</div>
-        <div class="track" id="self-essence-track"></div>
-      </div>
-    </main>
 
-    <footer class="hand-area">
-      <div id="hand" class="hand"></div>
-      <div class="controls">
-        <button id="attack-btn">Declare Attack</button>
-        <button id="endturn-btn">End Turn</button>
+      <div class="grid grid-cols-12 gap-2 items-center">
+        <div class="col-span-3 faction-box self">
+          <div class="faction-icon">B</div>
+          <div>
+            <span class="faction-label">Your Faction</span>
+            <h4 class="faction-name" id="self-name">You</h4>
+          </div>
+          <div class="passive-box">
+            <span class="passive-label">Passive</span>
+            <span class="passive-val">Divine</span>
+          </div>
+        </div>
+        <div class="col-span-5 sanity-box">
+          <div class="flex justify-between items-center mb-0.5">
+            <span class="sanity-label"><i class="fa-solid fa-brain"></i> Player Sanity</span>
+            <span id="self-sanity" class="sanity-val">30</span>
+          </div>
+          <div class="lp-meter"><div class="lp-fill self-fill" id="self-lp-fill"></div></div>
+        </div>
+        <div class="col-span-4 hand-box self">
+          <span class="hand-label"><i class="fa-solid fa-hand"></i> Your Hand</span>
+          <div class="hand-scroll" id="hand"></div>
+        </div>
       </div>
-    </footer>
-  </section>
-
-  <div id="help-overlay" class="overlay hidden">
-    <div class="overlay-card">
-      <h2>How to Play</h2>
-      <p>Play cards by clicking them. Click units to select attackers, then Declare Attack. End Turn passes play. Shortcuts: 1-9 play cards, Enter end turn, Space attack.</p>
-      <button id="help-close">Close</button>
     </div>
-  </div>
+  </section>
   <div id="gameover" class="overlay hidden">
     <div class="overlay-card">
       <h2 id="gameover-title">Game Over</h2>

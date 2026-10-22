@@ -248,3 +248,33 @@ select:hover, button:hover { background: linear-gradient(180deg, #3a2a55, #2a1a4
 .board-row.zones { display:grid; grid-template-columns: repeat(5, 1fr); gap:6px; min-height:110px; }
 .board-row.zones.back { grid-template-columns: repeat(3, 1fr); }
 .board-row.zones .card { width:100%; min-width:0; }
+
+/* Playmat layout */
+.playmat { max-width:1400px; margin:0 auto; background: rgba(8,12,24,0.92); border:2px solid #1e3a8a; border-radius:12px; padding:12px; box-shadow:0 20px 60px rgba(0,0,0,0.8); }
+.faction-box { background: rgba(10,20,45,0.6); border:1px solid #1e3a8a; border-radius:8px; padding:8px; display:flex; align-items:center; gap:8px; }
+.faction-icon { width:32px; height:32px; border-radius:6px; background:#1e3a8a; display:flex; align-items:center; justify-content:center; font-weight:700; }
+.faction-label { font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:1px; }
+.faction-name { font-size:12px; font-weight:700; margin:0; }
+.passive-box { margin-left:auto; text-align:right; border-left:1px solid #1e3a8a; padding-left:8px; }
+.passive-label { font-size:8px; color:#94a3b8; text-transform:uppercase; display:block; }
+.passive-val { font-size:10px; font-weight:700; color:#93c5fd; }
+.sanity-box { background: rgba(10,20,45,0.6); border:1px solid #1e3a8a; border-radius:8px; padding:8px; }
+.sanity-label { font-size:9px; color:#94a3b8; font-weight:700; text-transform:uppercase; }
+.sanity-val { font-size:11px; font-weight:700; color:#93c5fd; }
+.hand-box { background: rgba(10,20,45,0.4); border:1px solid #1e3a8a; border-radius:8px; padding:6px; display:flex; align-items:center; gap:6px; }
+.hand-label { font-size:9px; color:#94a3b8; font-weight:700; text-transform:uppercase; white-space:nowrap; }
+.hand-scroll { flex:1; display:flex; gap:4px; overflow-x:auto; }
+.slot { aspect-ratio: 2.5/3.5; background: rgba(10,20,45,0.6); border:1px solid #1e3a8a; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:10px; color:#94a3b8; }
+.slot.card-slot { cursor:pointer; transition: all .2s; }
+.slot.card-slot:hover { border-color:#93c5fd; box-shadow:0 0 12px rgba(59,130,246,0.4); transform:translateY(-2px); }
+.slot.essence-slot { flex-direction:column; gap:4px; }
+.slot.pile-slot { background: rgba(10,20,45,0.8); }
+.essence-val { font-size:22px; font-weight:800; color:#93c5fd; }
+.essence-btns { display:flex; gap:4px; }
+.essence-btns button { padding:2px 6px; font-size:10px; }
+.center-bar { display:flex; gap:8px; align-items:center; margin:8px 0; padding:8px; background: rgba(10,20,45,0.8); border:1px solid #1e3a8a; border-radius:8px; flex-wrap:wrap; }
+.cast-btn { padding:6px 12px; background: linear-gradient(135deg,#1e3a8a,#3b82f6); border:1px solid #93c5fd; border-radius:6px; color:#fff; font-weight:700; font-size:11px; }
+.realm-slot { padding:6px 12px; background: rgba(88,28,135,0.4); border:1px solid #a855f7; border-radius:6px; font-size:11px; color:#c4b5fd; }
+.log-box { flex:1; min-width:200px; background: rgba(0,0,0,0.4); border:1px solid #1e3a8a; border-radius:6px; padding:6px; max-height:60px; overflow:auto; font-size:10px; }
+.action-btn { padding:6px 12px; background: linear-gradient(135deg,#1e3a8a,#3b82f6); border:1px solid #93c5fd; border-radius:6px; color:#fff; font-weight:700; font-size:11px; }
+.action-btn.end { background: linear-gradient(135deg,#166534,#22c55e); border-color:#4ade80; }

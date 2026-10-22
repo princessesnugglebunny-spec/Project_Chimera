@@ -1,11 +1,63 @@
 let allCards = [];
 let factions = [];
 let uidCounter = 1;
+const FACTION_THEMES = {
+  'Goetia': { primary:'#8b0000', secondary:'#4b0082', base:55, type:'sawtooth' },
+  'Zodiac': { primary:'#1e3a8a', secondary:'#9333ea', base:66, type:'sine' },
+  'Red Rose Templars': { primary:'#dc2626', secondary:'#ffffff', base:73, type:'triangle' },
+  'Dreamtime': { primary:'#d97706', secondary:'#1f2937', base:60, type:'sine' },
+  'Yaoguai': { primary:'#111827', secondary:'#16a34a', base:50, type:'square' },
+  'Celestial Host': { primary:'#fbbf24', secondary:'#3b82f6', base:82, type:'sine' },
+  'Host of the Damned': { primary:'#6b7280', secondary:'#dc2626', base:48, type:'triangle' },
+  'Oni': { primary:'#dc2626', secondary:'#1f2937', base:62, type:'sawtooth' },
+  'Chthonic': { primary:'#312e81', secondary:'#6b7280', base:44, type:'sine' },
+  'Melanesian': { primary:'#0ea5e9', secondary:'#10b981', base:68, type:'sine' },
+  'Mesopotamian': { primary:'#78350f', secondary:'#16a34a', base:52, type:'sawtooth' },
+  'Coven': { primary:'#16a34a', secondary:'#78350f', base:58, type:'triangle' },
+  'Neutral': { primary:'#6b7280', secondary:'#9ca3af', base:60, type:'sine' },
+};
+
+function applyFactionTheme(faction) {
+  const t = FACTION_THEMES[faction] || FACTION_THEMES['Neutral'];
+  document.documentElement.style.setProperty('--accent', t.primary);
+  document.documentElement.style.setProperty('--accent2', t.secondary);
+  // store for music
+  window.__factionBase = t.base;
+  window.__factionType = t.type;
+}
+
+// Dynamic tug-of-war music update
+let musicInterval = null;
+function startDynamicMusic() {
+  if (musicInterval) return;
+  musicInterval = setInterval(() => {
+    if (!G || !audioCtx) return;
+    const diff = G.player.sanity - G.ai.sanity; // positive = player winning
+    const base = window.__factionBase || 60;
+    const targetFreq = base + Math.max(-10, Math.min(10, diff));
+    // update ambient osc if exists
+    if (window.__ambientOsc) {
+      window.__ambientOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.5);
+    }
+    // adjust gain based on tension (low sanity)
+    const tension = 1 - Math.min(G.player.sanity, G.ai.sanity) / 30;
+    if (window.__ambientGain) {
+      window.__ambientGain.gain.setTargetAtTime(0.012 + tension * 0.02, audioCtx.currentTime, 0.5);
+    }
+  }, 1000);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const fs = document.getElementById('faction-select');
+  if (fs) fs.addEventListener('change', (e) => { applyFactionTheme(e.target.value); });
+  applyFactionTheme((fs && fs.value) || 'Neutral');
+});
+
 let G = null;
 let selectedHandUid = null;
 let attacking = new Set();
-let profile = loadProfile();
-let currentDeck = loadDeck();
+let profile = {};
+let currentDeck = null;
 let runState = null;
 let difficulty = 'normal';
 
@@ -120,10 +172,10 @@ function summonUnit(p, inst, row) {
   inst.tapped = false;
   inst.damage = 0;
   if (row === 'front') {
-    if (p.front.length >= 5) row = 'back';
+    if (p.front.length >= 4) row = 'back';
   }
   if (row === 'back') {
-    if (p.back.length >= 3) {
+    if (p.back.length >= 2) {
       // no space: discard
       p.discard.push(inst);
       log(p.name + ' has no space; card discarded.');
@@ -688,20 +740,20 @@ function playCardAI(inst) {
 function render() {
   if (!G) return;
   // topbar
-  $('opp-name').textContent = G.ai.name + ' (' + G.ai.faction + ')';
-  $('opp-sanity').textContent = G.ai.sanity;
+  const _on = $('opp-name'); if (_on) _on.textContent = G.ai.name + ' (' + G.ai.faction + ')';
+  const _os = $('opp-sanity'); if (_os) _os.textContent = G.ai.sanity;
   const oppFill = document.getElementById('opp-lp-fill'); if (oppFill) oppFill.style.width = Math.max(0, Math.min(100, (G.ai.sanity/30)*100)) + '%';
-  $('opp-essence').textContent = G.ai.essence;
-  $('opp-deck').textContent = G.ai.deck.length;
-  $('opp-hand').textContent = G.ai.hand.length;
-  $('self-name').textContent = G.player.name + ' (' + G.player.faction + ')';
-  $('self-sanity').textContent = G.player.sanity;
+  const _oe = $('opp-essence'); if (_oe) _oe.textContent = G.ai.essence;
+  const _od = $('opp-deck'); if (_od) _od.textContent = G.ai.deck.length;
+  const _oh = $('opp-hand'); if (_oh) _oh.textContent = G.ai.hand.length;
+  const _sn = $('self-name'); if (_sn) _sn.textContent = G.player.name + ' (' + G.player.faction + ')';
+  const _ss = $('self-sanity'); if (_ss) _ss.textContent = G.player.sanity;
   const selfFill = document.getElementById('self-lp-fill'); if (selfFill) selfFill.style.width = Math.max(0, Math.min(100, (G.player.sanity/30)*100)) + '%';
   const st = document.getElementById('self-sanity-track'); if (st) { if (!st.querySelector('.track-fill')) { const f=document.createElement('div'); f.className='track-fill'; st.appendChild(f); } st.querySelector('.track-fill').style.height = Math.max(0,Math.min(100,(G.player.sanity/30)*100))+'%'; }
   const et = document.getElementById('self-essence-track'); if (et) { if (!et.querySelector('.track-fill')) { const f=document.createElement('div'); f.className='track-fill'; et.appendChild(f); } et.querySelector('.track-fill').style.height = Math.max(0,Math.min(100,(G.player.essence/10)*100))+'%'; }
-  $('self-essence').textContent = G.player.essence;
-  $('self-deck').textContent = G.player.deck.length;
-  $('turn-label').textContent = 'Turn ' + Math.ceil(G.turnNumber/2) + ' - ' + (G.turn === 'player' ? 'Your Turn' : "AI's Turn");
+  const _se = $('self-essence'); if (_se) _se.textContent = G.player.essence;
+  const _sd = $('self-deck'); if (_sd) _sd.textContent = G.player.deck.length;
+  const _tl = $('turn-label'); if (_tl) _tl.textContent = 'Turn ' + Math.ceil(G.turnNumber/2) + ' - ' + (G.turn === 'player' ? 'Your Turn' : "AI's Turn");
   const oppDeck = document.getElementById('opp-deck-pile'); if (oppDeck) oppDeck.textContent = 'Deck\n' + G.ai.deck.length;
   const oppDisc = document.getElementById('opp-discard-pile'); if (oppDisc) oppDisc.textContent = 'Discard\n' + G.ai.discard.length;
   const selfDeck = document.getElementById('self-deck-pile'); if (selfDeck) selfDeck.textContent = 'Deck\n' + G.player.deck.length;
@@ -709,16 +761,26 @@ function render() {
   const ri = $('run-info'); if (ri) ri.textContent = G.location ? ('📍 ' + G.location.name) : '';
   const fz = document.getElementById('field-zone'); if (fz) fz.textContent = G.location ? ('Field: ' + G.location.name) : 'Field: none';
   const fs = $('faction-state'); if (fs && G) { const p=G.player; let txt=''; if (p.faction==='Zodiac') txt='Cycle: '+(p.cycle||0); else if (p.faction==='Coven') txt='Wheel: '+(p.wheel||0); else if (p.faction==='Melanesian') txt='Tide: '+(p.tide||'High'); else txt=p.faction; fs.textContent=txt; }
-  $('phase-label').textContent = (G.phase || '').charAt(0).toUpperCase() + (G.phase||'').slice(1) + ' Phase';
+  const _pl = $('phase-label'); if (_pl) _pl.textContent = (G.phase || '').charAt(0).toUpperCase() + (G.phase||'').slice(1) + ' Phase';
 
   // boards
-  renderBoardRow('opp-back', G.ai.back, true);
-  renderBoardRow('opp-front', G.ai.front, true);
-  renderBoardRow('self-front', G.player.front, false);
-  renderBoardRow('self-back', G.player.back, false);
+  // Render into individual slots
+  for (let i=0;i<4;i++) {
+    const ob = document.getElementById('opp-back-'+i);
+    if (ob) { ob.innerHTML = ''; if (G.ai.back[i]) ob.appendChild(unitEl(G.ai.back[i])); }
+    const ofr = document.getElementById('opp-front-'+i);
+    if (ofr) { ofr.innerHTML = ''; if (G.ai.front[i]) ofr.appendChild(unitEl(G.ai.front[i])); }
+    const sf = document.getElementById('self-front-'+i);
+    if (sf) { sf.innerHTML = ''; if (G.player.front[i]) sf.appendChild(unitEl(G.player.front[i])); }
+    const sb = document.getElementById('self-back-'+i);
+    if (sb) { sb.innerHTML = ''; if (G.player.back[i]) sb.appendChild(unitEl(G.player.back[i])); }
+  }
+  const oppPact = document.getElementById('opp-pact'); if (oppPact) { oppPact.innerHTML='Pact'; }
+  const selfPact = document.getElementById('self-pact'); if (selfPact) { selfPact.innerHTML='Pact'; }
 
   // hand
-  const handEl = $('hand');
+  const handEl = document.getElementById('hand');
+  if (!handEl) return;
   handEl.innerHTML = '';
   G.player.hand.forEach(inst => {
     const el = cardEl(inst, true);
@@ -810,15 +872,17 @@ async function init() {
       sel.appendChild(opt);
     });
     $('loading').textContent = 'Ready.';
+    profile = loadProfile();
     ensureProfile();
+    currentDeck = loadDeck();
     renderProfileBar();
     populateFactions();
-    document.getElementById('play-btn').textContent = t('play');
-    document.getElementById('collection-btn').textContent = t('collection');
-    document.getElementById('deckbuilder-btn').textContent = t('deckbuilder');
-    document.getElementById('quests-btn').textContent = t('quests');
-    document.getElementById('spectate-btn').textContent = t('spectate');
-    document.getElementById('draft-btn').textContent = t('draft');
+    const _pb = document.getElementById('play-btn'); if (_pb) _pb.textContent = t('play');
+    const _cb = document.getElementById('collection-btn'); if (_cb) _cb.textContent = t('collection');
+    const _db = document.getElementById('deckbuilder-btn'); if (_db) _db.textContent = t('deckbuilder');
+    const _qb = document.getElementById('quests-btn'); if (_qb) _qb.textContent = t('quests');
+    const _sb = document.getElementById('spectate-btn'); if (_sb) _sb.textContent = t('spectate');
+    const _drb = document.getElementById('draft-btn'); if (_drb) _drb.textContent = t('draft');
   } catch (e) {
     $('loading').textContent = 'Failed to load cards: ' + e.message;
   }
@@ -1093,12 +1157,12 @@ function showScreen(id) {
   document.getElementById(id).classList.remove('hidden');
 }
 
-document.getElementById('collection-btn').addEventListener('click', () => { renderCollection(); showScreen('collection-screen'); });
-document.getElementById('back-from-collection').addEventListener('click', () => showScreen('title-screen'));
-document.getElementById('deckbuilder-btn').addEventListener('click', () => { renderDeckBuilder(); showScreen('deckbuilder-screen'); });
-document.getElementById('back-from-deck').addEventListener('click', () => showScreen('title-screen'));
-document.getElementById('quests-btn').addEventListener('click', () => { renderQuests(); showScreen('quests-screen'); });
-document.getElementById('back-from-quests').addEventListener('click', () => showScreen('title-screen'));
+const _collection_btn = document.getElementById('collection-btn'); if (_collection_btn) _collection_btn.addEventListener('click', () => { renderCollection(); showScreen('collection-screen'); });
+const _back_from_collection = document.getElementById('back-from-collection'); if (_back_from_collection) _back_from_collection.addEventListener('click', () => showScreen('title-screen'));
+const _deckbuilder_btn = document.getElementById('deckbuilder-btn'); if (_deckbuilder_btn) _deckbuilder_btn.addEventListener('click', () => { renderDeckBuilder(); showScreen('deckbuilder-screen'); });
+const _back_from_deck = document.getElementById('back-from-deck'); if (_back_from_deck) _back_from_deck.addEventListener('click', () => showScreen('title-screen'));
+const _quests_btn = document.getElementById('quests-btn'); if (_quests_btn) _quests_btn.addEventListener('click', () => { renderQuests(); showScreen('quests-screen'); });
+const _back_from_quests = document.getElementById('back-from-quests'); if (_back_from_quests) _back_from_quests.addEventListener('click', () => showScreen('title-screen'));
 
 // Collection
 function renderCollection() {
@@ -1125,8 +1189,8 @@ function renderCollection() {
   const prev = document.createElement('button'); prev.textContent='Prev'; prev.disabled = collPage===0; prev.addEventListener('click', ()=>{ collPage--; renderCollection(); }); pag.appendChild(prev);
   const next = document.createElement('button'); next.textContent='Next'; next.disabled = collPage>=totalPages-1; next.addEventListener('click', ()=>{ collPage++; renderCollection(); }); pag.appendChild(next);
 }
-document.getElementById('coll-faction').addEventListener('change', renderCollection);
-document.getElementById('coll-search').addEventListener('input', renderCollection);
+const _coll_faction = document.getElementById('coll-faction'); if (_coll_faction) _coll_faction.addEventListener('change', renderCollection);
+const _coll_search = document.getElementById('coll-search'); if (_coll_search) _coll_search.addEventListener('input', renderCollection);
 
 // Deck builder
 let editingDeck = [];
@@ -1168,13 +1232,13 @@ function renderDeckCurrent() {
   curve.innerHTML = '<b>Mana Curve:</b> ' + Object.keys(counts).sort((a,b)=>a-b).map(k=> k+':'+counts[k]).join('  ') + ' | Avg Cost: ' + avg;
   document.getElementById('deck-count').textContent = editingDeck.length + '/40';
 }
-document.getElementById('deck-faction').addEventListener('change', renderDeckBuilder);
+const _deck_faction = document.getElementById('deck-faction'); if (_deck_faction) _deck_faction.addEventListener('change', renderDeckBuilder);
 // clear deck button
 const clearBtn = document.createElement('button');
 clearBtn.textContent = 'Clear Deck';
 document.querySelector('#deckbuilder-screen .topbar').appendChild(clearBtn);
 clearBtn.addEventListener('click', () => { editingDeck = []; renderDeckCurrent(); });
-document.getElementById('save-deck-btn').addEventListener('click', () => {
+const _save_deck_btn = document.getElementById('save-deck-btn'); if (_save_deck_btn) _save_deck_btn.addEventListener('click', () => {
   if (editingDeck.length < 40) { alert('Deck must have 40 cards'); return; }
   profile.decks.custom = editingDeck;
   saveProfile();
@@ -1213,7 +1277,7 @@ function renderQuests() {
 }
 
 // Roguelike
-document.getElementById('rogue-btn').addEventListener('click', () => startRoguelike());
+const _rogue_btn = document.getElementById('rogue-btn'); if (_rogue_btn) _rogue_btn.addEventListener('click', () => startRoguelike());
 
 function startRoguelike() {
   const faction = document.getElementById('faction-select').value;
@@ -1271,11 +1335,11 @@ function renderTut() {
   document.getElementById('tut-title').textContent = tutSteps[tutIndex].title;
   document.getElementById('tut-text').textContent = tutSteps[tutIndex].text;
 }
-document.getElementById('tut-skip').addEventListener('click', () => {
+const _tut_skip = document.getElementById('tut-skip'); if (_tut_skip) _tut_skip.addEventListener('click', () => {
   document.getElementById('tutorial').classList.add('hidden');
   localStorage.setItem('chimera_tut_done','1');
 });
-document.getElementById('tut-next').addEventListener('click', () => {
+const _tut_next = document.getElementById('tut-next'); if (_tut_next) _tut_next.addEventListener('click', () => {
   tutIndex++;
   if (tutIndex >= tutSteps.length) {
     document.getElementById('tutorial').classList.add('hidden');
@@ -1285,7 +1349,7 @@ document.getElementById('tut-next').addEventListener('click', () => {
 
 // Hook tutorial into Play
 const _origPlay = document.getElementById('play-btn').onclick;
-document.getElementById('play-btn').addEventListener('click', () => {
+const _play_btn = document.getElementById('play-btn'); if (_play_btn) _play_btn.addEventListener('click', () => {
   setTimeout(showTutorial, 500);
 });
 
@@ -1382,7 +1446,7 @@ function showRewardPick() {
 }
 
 // Restart button
-document.getElementById('restart-btn').addEventListener('click', () => {
+const _restart_btn = document.getElementById('restart-btn'); if (_restart_btn) _restart_btn.addEventListener('click', () => {
   document.getElementById('gameover').classList.add('hidden');
   showScreen('title-screen');
 });
@@ -1500,7 +1564,7 @@ gameOver = function(title, msg) {
 
 // Draft mode
 let draftState = null;
-document.getElementById('draft-btn').addEventListener('click', () => startDraft());
+const _draft_btn = document.getElementById('draft-btn'); if (_draft_btn) _draft_btn.addEventListener('click', () => startDraft());
 
 function startDraft() {
   draftState = { picks: [], round: 0, total: 30 };
@@ -1593,7 +1657,7 @@ function aiTakeTurn() {
     played = false;
     const playable = p.hand.filter(c => canPlayCard(p, c)).sort((a,b)=> (a.card.cost||0)-(b.card.cost||0));
     for (const inst of playable) {
-      if (inst.card.type === 'Unit' && p.front.length >= 5 && p.back.length >= 3) continue;
+      if (inst.card.type === 'Unit' && p.front.length >= 4 && p.back.length >= 2) continue;
       // play
       p.essence -= cardCost(inst);
       p.hand = p.hand.filter(x => x.uid !== inst.uid);
@@ -1635,7 +1699,7 @@ function aiTakeTurn() {
 function scheduleAITurn() { setTimeout(() => { if (G) aiTakeTurn(); }, 700); }
 
 // Spectate button
-document.getElementById('spectate-btn').addEventListener('click', () => {
+const _spectate_btn = document.getElementById('spectate-btn'); if (_spectate_btn) _spectate_btn.addEventListener('click', () => {
   const f1 = factions.filter(f=>f!=='Neutral')[Math.floor(Math.random()* (factions.length-1))];
   const f2 = factions.filter(f=>f!=='Neutral' && f!==f1)[Math.floor(Math.random()* (factions.length-2))];
   const d1 = buildDeck(f1);
@@ -1723,10 +1787,10 @@ initThreeBg();
 
 
 // Help overlay
-document.getElementById('help-btn').addEventListener('click', () => {
+const _help_btn = document.getElementById('help-btn'); if (_help_btn) _help_btn.addEventListener('click', () => {
   document.getElementById('help-overlay').classList.remove('hidden');
 });
-document.getElementById('help-close').addEventListener('click', () => {
+const _help_close = document.getElementById('help-close'); if (_help_close) _help_close.addEventListener('click', () => {
   document.getElementById('help-overlay').classList.add('hidden');
 });
 
@@ -1785,7 +1849,7 @@ const I18N = {
 };
 function t(key) { const lang = localStorage.getItem('chimera_lang') || 'en'; return (I18N[lang] && I18N[lang][key]) || key; }
 
-document.getElementById('dust-btn').addEventListener('click', () => {
+const _dust_btn = document.getElementById('dust-btn'); if (_dust_btn) _dust_btn.addEventListener('click', () => {
   const commons = allCards.filter(c => profile.unlocked[c.id] && c.rarity === 'Common');
   const lockedRares = allCards.filter(c => !profile.unlocked[c.id] && (c.rarity === 'Rare' || c.rarity === 'Legendary'));
   if (commons.length < 4 || lockedRares.length === 0) { alert('Need 4+ commons and a locked rare'); return; }
@@ -1799,7 +1863,7 @@ document.getElementById('dust-btn').addEventListener('click', () => {
 });
 
 // Hot-seat 2P
-document.getElementById('hotseat-btn').addEventListener('click', () => {
+const _hotseat_btn = document.getElementById('hotseat-btn'); if (_hotseat_btn) _hotseat_btn.addEventListener('click', () => {
   const f1 = factions.filter(f=>f!=='Neutral')[Math.floor(Math.random()*(factions.length-1))];
   const f2 = factions.filter(f=>f!=='Neutral' && f!==f1)[Math.floor(Math.random()*(factions.length-2))];
   const p1 = createPlayer('Player 1', f1, buildDeck(f1));
@@ -1890,57 +1954,7 @@ gameOver = function(title, msg) {
 };
 
 // Faction themes
-const FACTION_THEMES = {
-  'Goetia': { primary:'#8b0000', secondary:'#4b0082', base:55, type:'sawtooth' },
-  'Zodiac': { primary:'#1e3a8a', secondary:'#9333ea', base:66, type:'sine' },
-  'Red Rose Templars': { primary:'#dc2626', secondary:'#ffffff', base:73, type:'triangle' },
-  'Dreamtime': { primary:'#d97706', secondary:'#1f2937', base:60, type:'sine' },
-  'Yaoguai': { primary:'#111827', secondary:'#16a34a', base:50, type:'square' },
-  'Celestial Host': { primary:'#fbbf24', secondary:'#3b82f6', base:82, type:'sine' },
-  'Host of the Damned': { primary:'#6b7280', secondary:'#dc2626', base:48, type:'triangle' },
-  'Oni': { primary:'#dc2626', secondary:'#1f2937', base:62, type:'sawtooth' },
-  'Chthonic': { primary:'#312e81', secondary:'#6b7280', base:44, type:'sine' },
-  'Melanesian': { primary:'#0ea5e9', secondary:'#10b981', base:68, type:'sine' },
-  'Mesopotamian': { primary:'#78350f', secondary:'#16a34a', base:52, type:'sawtooth' },
-  'Coven': { primary:'#16a34a', secondary:'#78350f', base:58, type:'triangle' },
-  'Neutral': { primary:'#6b7280', secondary:'#9ca3af', base:60, type:'sine' },
-};
 
-function applyFactionTheme(faction) {
-  const t = FACTION_THEMES[faction] || FACTION_THEMES['Neutral'];
-  document.documentElement.style.setProperty('--accent', t.primary);
-  document.documentElement.style.setProperty('--accent2', t.secondary);
-  // store for music
-  window.__factionBase = t.base;
-  window.__factionType = t.type;
-}
-
-// Dynamic tug-of-war music update
-let musicInterval = null;
-function startDynamicMusic() {
-  if (musicInterval) return;
-  musicInterval = setInterval(() => {
-    if (!G || !audioCtx) return;
-    const diff = G.player.sanity - G.ai.sanity; // positive = player winning
-    const base = window.__factionBase || 60;
-    const targetFreq = base + Math.max(-10, Math.min(10, diff));
-    // update ambient osc if exists
-    if (window.__ambientOsc) {
-      window.__ambientOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.5);
-    }
-    // adjust gain based on tension (low sanity)
-    const tension = 1 - Math.min(G.player.sanity, G.ai.sanity) / 30;
-    if (window.__ambientGain) {
-      window.__ambientGain.gain.setTargetAtTime(0.012 + tension * 0.02, audioCtx.currentTime, 0.5);
-    }
-  }, 1000);
-}
-
-document.getElementById('faction-select').addEventListener('change', (e) => {
-  applyFactionTheme(e.target.value);
-});
-// initial theme
-applyFactionTheme(document.getElementById('faction-select').value || 'Neutral');
 
 function showTargetFaceButton() {
   let btn = document.getElementById('target-face-btn');
