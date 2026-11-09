@@ -209,14 +209,16 @@ select:hover, button:hover { background: linear-gradient(180deg, #3a2a55, #2a1a4
 /* Faction banner */
 #faction-banner { height:4px; background: linear-gradient(90deg, var(--accent2), var(--accent), var(--accent2)); margin-bottom:8px; border-radius:2px; }
 
-/* Card art placeholder */
+/* Card art */
 .card .art {
   width:100%; height:60px; margin:6px 0; border-radius:6px;
   background: linear-gradient(135deg, rgba(201,162,39,0.15), rgba(139,26,26,0.15));
   display:flex; align-items:center; justify-content:center;
   font-size:28px; font-family:"Cinzel",serif; color:rgba(245,215,110,0.4);
   border:1px solid rgba(201,162,39,0.2);
+  overflow:hidden;
 }
+.card .art img { width:100%; height:100%; object-fit:cover; display:block; }
 .board-card .art { height:40px; font-size:20px; }
 
 /* Piles */

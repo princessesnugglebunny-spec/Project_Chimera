@@ -848,7 +848,7 @@ function cardEl(inst, inHand) {
   el.setAttribute('aria-label', inst.card.name);
   el.innerHTML = `
     <div class="cost">${c.cost ?? 0}</div>
-    <div class="art">${c.faction ? c.faction.charAt(0) : '?'}</div>
+    <div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:100%;object-fit:cover;border-radius:4px;\" onerror=\"this.style.display=\'none\'\"/>' : (c.faction ? c.faction.charAt(0) : '?')}</div>
     <div class="name">${c.name}</div>
     <div class="type">${c.type}${c.subtype ? ' - ' + c.subtype : ''}</div>
     ${c.type === 'Unit' ? `<div class="stats">${effAtk(inst)}/${effHp(inst) - (inst.damage||0)}</div>` : ''}
@@ -867,7 +867,7 @@ function unitEl(u) {
   el.setAttribute('aria-label', u.card.name);
   el.innerHTML = `
     <div class="cost">${u.card.cost ?? 0}</div>
-    <div class="art">${u.card.faction ? u.card.faction.charAt(0) : '?'}</div>
+    <div class="art">${u.card.art_path ? '<img src=\"' + u.card.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:100%;object-fit:cover;border-radius:4px;\" onerror=\"this.style.display=\'none\'\"/>' : (u.card.faction ? u.card.faction.charAt(0) : '?')}</div>
     <div class="name">${u.card.name}</div>
     <div class="stats">${effAtk(u)}/${effHp(u) - (u.damage||0)}</div>
     ${u.equipped && u.equipped.length ? '<div class="kw">+' + u.equipped.join(',') + '</div>' : ''}
@@ -1187,7 +1187,9 @@ const _back_from_quests = document.getElementById('back-from-quests'); if (_back
 // Collection
 function renderCollection() {
   const grid = document.getElementById('collection-grid');
-  const fac = document.getElementById('coll-faction').value || 'all';
+  if (!grid) return;
+  const facEl = document.getElementById('coll-faction');
+  const fac = (facEl && facEl.value) || 'all';
   const q = (document.getElementById('coll-search').value || '').toLowerCase();
   const filtered = allCards.filter(c => c.type !== 'Token' && (fac==='all'||c.faction===fac) && (!q || c.name.toLowerCase().includes(q)) && profile.unlocked[c.id]);
   const pageSize = 60;
@@ -1198,7 +1200,7 @@ function renderCollection() {
   filtered.slice(collPage*pageSize, (collPage+1)*pageSize).forEach(c => {
     const el = document.createElement('div');
     el.className = 'card rarity-' + (c.rarity||'Common').toLowerCase().replace(' ','-');
-    el.innerHTML = `<div class="cost">${c.cost}</div><div class="name">${c.name}</div><div class="type">${c.type}</div><div class="kw">${(c.keywords||[]).join(', ')}</div>`;
+    el.innerHTML = `<div class="cost">${c.cost}</div><div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:40px;object-fit:cover;border-radius:4px;\"/>' : ''}</div><div class="name">${c.name}</div><div class="type">${c.type}</div><div class="kw">${(c.keywords||[]).join(', ')}</div>`;
     grid.appendChild(el);
   });
   document.getElementById('coll-count').textContent = filtered.length + ' cards (page ' + (collPage+1) + '/' + totalPages + ')';
@@ -1217,12 +1219,14 @@ let editingDeck = [];
 let collPage = 0;
 function renderDeckBuilder() {
   const poolGrid = document.getElementById('deck-pool-grid');
-  const fac = document.getElementById('deck-faction').value;
+  if (!poolGrid) return;
+  const facEl = document.getElementById('deck-faction');
+  const fac = (facEl && facEl.value) || (factions[0] || 'Neutral');
   poolGrid.innerHTML = '';
   allCards.filter(c => c.faction === fac && c.type !== 'Token' && profile.unlocked[c.id]).forEach(c => {
     const el = document.createElement('div');
     el.className = 'card';
-    el.innerHTML = `<div class="cost">${c.cost}</div><div class="name">${c.name}</div><div class="type">${c.type}</div>`;
+    el.innerHTML = `<div class="cost">${c.cost}</div><div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:40px;object-fit:cover;border-radius:4px;\"/>' : ''}</div><div class="name">${c.name}</div><div class="type">${c.type}</div>`;
     el.addEventListener('click', () => {
       if (editingDeck.length >= 40) return;
       editingDeck.push(c.id);
@@ -1268,6 +1272,7 @@ const _save_deck_btn = document.getElementById('save-deck-btn'); if (_save_deck_
 // Quests screen
 function renderQuests() {
   const dq = document.getElementById('daily-quests');
+  if (!dq) return;
   dq.innerHTML = '';
   (profile.quests||[]).forEach(q => {
     const div = document.createElement('div');
@@ -1278,7 +1283,7 @@ function renderQuests() {
   const stats = document.createElement('div'); stats.innerHTML = '<h3>Stats</h3><p>Wins: ' + profile.stats.wins + ' | Losses: ' + profile.stats.losses + ' | Units played: ' + profile.stats.unitsPlayed + '</p>';
   const ql = document.querySelector('.quests-layout'); if (ql) ql.appendChild(stats);
   const ach = document.getElementById('achievements');
-  ach.innerHTML = '';
+  if (ach) ach.innerHTML = '';
   const defs = [
     { id:'firstWin', name:'First Win', desc:'Win your first game' },
     { id:'veteran', name:'Veteran', desc:'Win 10 games' },
@@ -1453,7 +1458,7 @@ function showRewardPick() {
   picks.forEach(c => {
     const el = document.createElement('div');
     el.className = 'card';
-    el.innerHTML = `<div class="cost">${c.cost}</div><div class="name">${c.name}</div><div class="type">${c.type}</div>`;
+    el.innerHTML = `<div class="cost">${c.cost}</div><div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:40px;object-fit:cover;border-radius:4px;\"/>' : ''}</div><div class="name">${c.name}</div><div class="type">${c.type}</div>`;
     el.addEventListener('click', () => {
       // add to run deck
       if (G && G.player) {
@@ -1603,7 +1608,7 @@ function showDraftPick() {
   picks.forEach(c => {
     const el = document.createElement('div');
     el.className = 'card';
-    el.innerHTML = `<div class="cost">${c.cost}</div><div class="name">${c.name}</div><div class="type">${c.type}</div><div class="kw">${(c.keywords||[]).join(', ')}</div>`;
+    el.innerHTML = `<div class="cost">${c.cost}</div><div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:40px;object-fit:cover;border-radius:4px;\"/>' : ''}</div><div class="name">${c.name}</div><div class="type">${c.type}</div><div class="kw">${(c.keywords||[]).join(', ')}</div>`;
     el.addEventListener('click', () => {
       draftState.picks.push(c.id);
       draftState.round++;
