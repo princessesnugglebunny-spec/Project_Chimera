@@ -187,6 +187,43 @@
   <div id="profile-bar" class="text-slate-400 text-sm"></div>
 </section>
 
+<section id="collection-screen" class="screen hidden">
+  <h2 class="cinzel-font text-3xl text-amber-400">Collection</h2>
+  <div class="filters">
+    <select id="coll-faction" class="bg-slate-800 border border-slate-600 rounded px-2 py-1"></select>
+    <input id="coll-search" placeholder="Search..." class="bg-slate-800 border border-slate-600 rounded px-2 py-1" />
+  </div>
+  <div id="coll-count" class="text-slate-400 text-sm"></div>
+  <div id="collection-grid" class="card-grid"></div>
+  <div id="coll-pag"></div>
+  <button id="back-from-collection" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Back</button>
+</section>
+
+<section id="deckbuilder-screen" class="screen hidden">
+  <h2 class="cinzel-font text-3xl text-amber-400">Deck Builder</h2>
+  <div class="deckbuilder-layout">
+    <div>
+      <select id="deck-faction" class="bg-slate-800 border border-slate-600 rounded px-2 py-1"></select>
+      <div id="deck-pool-grid" class="card-grid"></div>
+    </div>
+    <div class="deck-current">
+      <div id="deck-current-list" class="deck-current-list"></div>
+      <div id="deck-count" class="text-slate-400 text-sm"></div>
+      <button id="save-deck-btn" class="px-4 py-2 bg-amber-600 text-slate-950 font-bold rounded">Save Deck</button>
+    </div>
+  </div>
+  <button id="back-from-deck" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Back</button>
+</section>
+
+<section id="quests-screen" class="screen hidden">
+  <h2 class="cinzel-font text-3xl text-amber-400">Quests</h2>
+  <div class="quests-layout">
+    <div id="daily-quests"></div>
+    <div id="achievements"></div>
+  </div>
+  <button id="back-from-quests" class="px-4 py-2 bg-slate-800 border border-slate-600 rounded">Back</button>
+</section>
+
 <div id="gameover" class="overlay hidden">
   <div class="overlay-card">
     <h2 id="gameover-title">Game Over</h2>
