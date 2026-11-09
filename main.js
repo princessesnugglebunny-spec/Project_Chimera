@@ -1203,7 +1203,7 @@ function renderCollection() {
     el.innerHTML = `<div class="cost">${c.cost}</div><div class="art">${c.art_path ? '<img src=\"' + c.art_path + '\" alt=\"\" loading=\"lazy\" style=\"width:100%;height:40px;object-fit:cover;border-radius:4px;\"/>' : ''}</div><div class="name">${c.name}</div><div class="type">${c.type}</div><div class="kw">${(c.keywords||[]).join(', ')}</div>`;
     grid.appendChild(el);
   });
-  document.getElementById('coll-count').textContent = filtered.length + ' cards (page ' + (collPage+1) + '/' + totalPages + ')';
+  const _cc = document.getElementById('coll-count'); if (_cc) _cc.textContent = filtered.length + ' cards (page ' + (collPage+1) + '/' + totalPages + ')';
   // pagination controls
   let pag = document.getElementById('coll-pag');
   if (!pag) { pag = document.createElement('div'); pag.id='coll-pag'; pag.style.display='flex'; pag.style.gap='8px'; pag.style.justifyContent='center'; pag.style.padding='8px'; const cs = document.getElementById('collection-screen'); if (cs) cs.appendChild(pag); }
@@ -1254,7 +1254,7 @@ function renderDeckCurrent() {
   editingDeck.forEach(id => { const c = allCards.find(x=>x.id===id); if (c) counts[c.cost] = (counts[c.cost]||0)+1; });
   const avg = editingDeck.length ? (editingDeck.map(id=> (allCards.find(c=>c.id===id)||{}).cost||0).reduce((a,b)=>a+b,0)/editingDeck.length).toFixed(2) : 0;
   curve.innerHTML = '<b>Mana Curve:</b> ' + Object.keys(counts).sort((a,b)=>a-b).map(k=> k+':'+counts[k]).join('  ') + ' | Avg Cost: ' + avg;
-  document.getElementById('deck-count').textContent = editingDeck.length + '/40';
+  const _dc = document.getElementById('deck-count'); if (_dc) _dc.textContent = editingDeck.length + '/40';
 }
 const _deck_faction = document.getElementById('deck-faction'); if (_deck_faction) _deck_faction.addEventListener('change', renderDeckBuilder);
 // clear deck button
@@ -1326,7 +1326,7 @@ function startRoguelike() {
   render();
   log('Location: ' + G.location.name + ' - ' + G.location.desc);
   log('Descent begins. Win to grow your deck.');
-  document.getElementById('run-info').textContent = 'Wins: 0';
+  const _ri0 = document.getElementById('run-info'); if (_ri0) _ri0.textContent = 'Wins: 0';
 }
 
 function aiFactionName() {
@@ -1357,8 +1357,8 @@ function showTutorial() {
   renderTut();
 }
 function renderTut() {
-  document.getElementById('tut-title').textContent = tutSteps[tutIndex].title;
-  document.getElementById('tut-text').textContent = tutSteps[tutIndex].text;
+  const _tt = document.getElementById('tut-title'); if (_tt) _tt.textContent = tutSteps[tutIndex].title;
+  const _tx = document.getElementById('tut-text'); if (_tx) _tx.textContent = tutSteps[tutIndex].text;
 }
 const _tut_skip = document.getElementById('tut-skip'); if (_tut_skip) _tut_skip.addEventListener('click', () => {
   document.getElementById('tutorial').classList.add('hidden');
@@ -1435,7 +1435,7 @@ gameOver = function(title, msg) {
     checkAchievements();
     if (G && G.roguelike) {
       runState.wins++;
-      document.getElementById('run-info').textContent = 'Wins: ' + runState.wins;
+      const _ri1 = document.getElementById('run-info'); if (_ri1) _ri1.textContent = 'Wins: ' + runState.wins;
       // reward pick
       showRewardPick();
     }
@@ -1450,6 +1450,7 @@ gameOver = function(title, msg) {
 
 function showRewardPick() {
   const opts = document.getElementById('reward-options');
+  if (!opts) return;
   opts.innerHTML = '';
   const choices = shuffle(allCards.filter(c=>profile.unlocked[c.id]===undefined?true:true)).slice(0,3);
   // pick 3 random unlocked cards
@@ -1466,11 +1467,11 @@ function showRewardPick() {
         G.player.deck.push(instCard);
         log('Added ' + c.name + ' to deck.');
       }
-      document.getElementById('reward-pick').classList.add('hidden');
+      const _rp2 = document.getElementById('reward-pick'); if (_rp2) _rp2.classList.add('hidden');
     });
     opts.appendChild(el);
   });
-  document.getElementById('reward-pick').classList.remove('hidden');
+  const _rp = document.getElementById('reward-pick'); if (_rp) _rp.classList.remove('hidden');
 }
 
 // Restart button
