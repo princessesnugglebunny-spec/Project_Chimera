@@ -1,55 +1,1323 @@
 name: OpenCode
-run-name: "OpenCode #${{ github.event.issue.number || inputs.issue_number }}${{ github.event.issue.title && format(' — {0}', github.event.issue.title) || '' }}"
-
+run-name: "OpenCode #${{ github.event.issue.number || inputs.issue_number }}"
 on:
   issues:
-    types: [opened]
+    types:
+      - opened
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Existing issue to run
         required: true
         type: string
-
+        description: Existing issue to run
 permissions: {}
-
 concurrency:
   group: opencode-issue-${{ github.repository }}-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
-
 jobs:
   prepare:
-    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'OpenCode'))
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
       id-token: write
+      contents: write
       issues: write
       actions: write
-    uses: denaidark/OhMyGithub/.github/workflows/opencode-prepare.yml@6f6d1b7b9bdb480e4ef1c32fd5b0fca8814a9003
-    with:
-      runtime_ref: 6f6d1b7b9bdb480e4ef1c32fd5b0fca8814a9003
-
+    outputs:
+      approved: ${{ steps.prepare.outputs.approved }}
+      issue_number: ${{ steps.prepare.outputs.issue_number }}
+      request: ${{ steps.prepare.outputs.request }}
+      issue_title: ${{ steps.prepare.outputs.issue_title }}
+      labels_json: ${{ steps.prepare.outputs.labels_json }}
+      sender: ${{ steps.prepare.outputs.sender }}
+      target_ref: ${{ steps.prepare.outputs.target_ref }}
+      target_sha: ${{ steps.prepare.outputs.target_sha }}
+    steps:
+      - name: Authenticate status callbacks
+        continue-on-error: true
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.needs.prepare.outputs.issue_number }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          /usr/bin/time -p node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const env = process.env;
+          const origin = env.OMGITHUB_ORIGIN.replace(/\/$/, '');
+          const url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set('audience', origin);
+          async function json(url, options) {
+            const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
+            if (!response.ok) throw new Error(`Callback authentication HTTP ${response.status}`);
+            return response.json();
+          }
+          for (let attempt = 0; attempt < 8; attempt++) {
+            try {
+              const identity = await json(url, { headers: { authorization: `Bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
+              const { token } = await json(`${origin}/api/github/${env.GITHUB_REPOSITORY}/issues/${env.ISSUE_NUMBER}/callback-token`, {
+                method: 'POST', headers: { authorization: `Bearer ${identity.value}`, 'content-type': 'application/json' },
+                body: JSON.stringify({ run: env.GITHUB_RUN_ID, attempt: Number(env.GITHUB_RUN_ATTEMPT) })
+              });
+              console.log(`::add-mask::${token}`);
+              appendFileSync(env.GITHUB_ENV, `OMGITHUB_CALLBACK_TOKEN=${token}\n`);
+              break;
+            } catch (error) {
+              if (attempt === 7) throw error;
+              await new Promise(resolve => setTimeout(resolve, Math.min(20000, 3000 * 2 ** attempt)));
+            }
+          }
+          NODE
+      - name: Register preparation
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.needs.prepare.outputs.issue_number }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 15 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":1,\"state\":\"starting\",\"phase\":\"initializing\"}" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/run"
+      - name: Checkout trusted preparation code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate and claim issue request
+        id: prepare
+        env:
+          OPENCODE_ACCESS: ${{ vars.OPENCODE_ACCESS || 'writers' }}
+          GH_TOKEN: ${{ github.token }}
+        run: /usr/bin/time -p node .omgithub/scripts/opencode-prepare.mjs
+      - name: Report branch handoff
+        if: steps.prepare.outputs.redispatched == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.needs.prepare.outputs.issue_number }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          sequence=$(/usr/bin/time -p node -p 'Date.now()')
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 15 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":$sequence,\"state\":\"starting\",\"phase\":\"queued\"}" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/run"
+      - name: Report preparation failure
+        if: ${{ always() && (failure() || cancelled()) }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.needs.prepare.outputs.issue_number }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          sequence=$(/usr/bin/time -p node -p 'Date.now()')
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 15 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":$sequence,\"state\":\"ended\",\"phase\":\"initializing\",\"outcome\":\"$OUTCOME\",\"reason\":\"Workflow preparation failed. Check build details.\"}" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/run"
+      - name: Keep two newest runners
+        if: steps.prepare.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: /usr/bin/time -p node .omgithub/scripts/run-slots.mjs
+    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'OpenCode'))
+    concurrency:
+      group: omgithub-runner-admission-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 5
   opencode:
+    runs-on: ${{ contains(needs.prepare.outputs.labels_json, '"mac"') && 'macos-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 305
+    permissions:
+      id-token: write
+      contents: write
+      issues: write
+      actions: write
+      pull-requests: write
+    env:
+      SSH_NAME: opencode-issue-${{ needs.prepare.outputs.issue_number }}-${{ github.run_id }}-ssh
+      OPENCODE_WEB_PORT: 4096
+      PROJECT_PATH: ${{ vars.PROJECT_DIR || './' }}
+      PROJECT_DIR: ${{ github.workspace }}/${{ vars.PROJECT_DIR || './' }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENCODE_AUTH_CONTENT: ${{ secrets.OPENCODE_AUTH_JSON }}
+      OPENCODE_EXPERIMENTAL: "true"
+      OPENCODE_EXPERIMENTAL_WORKSPACES: "true"
+      OPENCODE_ENABLE_EXA: "true"
+      OPENCODE_ENABLE_EXPERIMENTAL_MODELS: "true"
+      OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "true"
+      OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true"
+      TARGET_OWNER: ${{ github.repository_owner }}
+      TARGET_REPO: ${{ github.event.repository.name }}
+      TARGET_REPOSITORY: ${{ github.repository }}
+      GH_REPO: ${{ github.repository }}
+      TARGET_REF: ${{ needs.prepare.outputs.target_ref }}
+      TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+      RUNTIME_REF: ${{ github.workflow_sha }}
+      APP_PORT: 3000
+      BRANCH_NAME: opencode/${{ github.run_id }}
+      AGENTSWEB_SSH_PUBLIC_KEY: ${{ secrets.AGENTSWEB_SSH_PUBLIC_KEY }}
+      AGENTSWEB_SSH_ENABLED: ${{ secrets.AGENTSWEB_SSH_PUBLIC_KEY != '' }}
+      TRIGGER_ISSUE_NUMBER: ${{ needs.prepare.outputs.issue_number }}
+      OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+      COMMENT_BODY: ${{ needs.prepare.outputs.request }}
+      LABELS_JSON: ${{ needs.prepare.outputs.labels_json }}
+      TEST_REQUEST: ${{ contains(needs.prepare.outputs.labels_json, '"test"') && contains(needs.prepare.outputs.labels_json, '"OpenCode"') }}
+      GOAL_REQUEST: ${{ contains(needs.prepare.outputs.labels_json, '"Goal"') }}
+      RALPH_REQUEST: ${{ contains(needs.prepare.outputs.labels_json, '"ralph"') }}
+      OMO_REQUEST: ${{ contains(needs.prepare.outputs.labels_json, '"omo"') }}
+      SSH_ONLY_REQUEST: ${{ contains(needs.prepare.outputs.labels_json, '"ssh"') }}
+      VALIDATION_ENABLED: ${{ vars.VALIDATION_ENABLED || 'true' }}
+    steps:
+      - name: Record job start time
+        shell: bash
+        run: echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Authenticate status callbacks
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ needs.prepare.outputs.issue_number }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          /usr/bin/time -p node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const env = process.env;
+          const origin = env.OMGITHUB_ORIGIN.replace(/\/$/, '');
+          const url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set('audience', origin);
+          async function json(url, options) {
+            const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
+            if (!response.ok) throw new Error(`Callback authentication HTTP ${response.status}`);
+            return response.json();
+          }
+          for (let attempt = 0; attempt < 8; attempt++) {
+            try {
+              const identity = await json(url, { headers: { authorization: `Bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
+              const { token } = await json(`${origin}/api/github/${env.GITHUB_REPOSITORY}/issues/${env.ISSUE_NUMBER}/callback-token`, {
+                method: 'POST', headers: { authorization: `Bearer ${identity.value}`, 'content-type': 'application/json' },
+                body: JSON.stringify({ run: env.GITHUB_RUN_ID, attempt: Number(env.GITHUB_RUN_ATTEMPT) })
+              });
+              console.log(`::add-mask::${token}`);
+              appendFileSync(env.GITHUB_ENV, `OMGITHUB_CALLBACK_TOKEN=${token}\n`);
+              break;
+            } catch (error) {
+              if (attempt === 7) throw error;
+              await new Promise(resolve => setTimeout(resolve, Math.min(20000, 3000 * 2 ** attempt)));
+            }
+          }
+          NODE
+      - name: Register Actions progress
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          set -euo pipefail
+          # Bootstrap without the runtime checkout; the lifecycle owns later updates.
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":1,\"state\":\"starting\"}" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$TRIGGER_ISSUE_NUMBER/run"
+      - name: Publish task link
+        shell: bash
+        run: |
+          set -euo pipefail
+          issue_url="https://github.com/${GITHUB_REPOSITORY}/issues/${TRIGGER_ISSUE_NUMBER}"
+          {
+            echo '## OpenCode task'
+            echo
+            echo "[Open triggering issue](${issue_url})"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Export target token
+        shell: bash
+        run: echo "GH_TOKEN=${{ github.token }}" >> "$GITHUB_ENV"
+      - name: Checkout installed runner
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: _omgithub-installed
+          persist-credentials: false
+      - name: Set worker paths outside the project
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p printf 'SSH_DIR=%s\nOPENCODE_WEB_DIR=%s\nRUNTIME_DIR=%s\nAGENTSWEB_DIR=%s\n' \
+            "$RUNNER_TEMP/omgithub-ssh" "$RUNNER_TEMP/omgithub-web" \
+            "$RUNNER_TEMP/omgithub-runtime" "$RUNNER_TEMP/omgithub-agentsweb" >> "$GITHUB_ENV"
+      - name: Copy installed runner outside the project
+        shell: bash
+        run: |-
+          set -euo pipefail
+          /usr/bin/time -p cp -R "$GITHUB_WORKSPACE/_omgithub-installed/.omgithub/." "$RUNTIME_DIR"
+      - name: Checkout target repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.target_sha }}
+          token: ${{ github.token }}
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Load account credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/account-credentials.mjs" load
+      - name: Fetch AgentsWeb tunnel client outside the project
+        if: env.TEST_REQUEST != 'true' && env.AGENTSWEB_SSH_ENABLED == 'true'
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p git clone --depth=1 --filter=blob:none --sparse \
+            https://github.com/denaidark/agent-workspace.git "$AGENTSWEB_DIR"
+          /usr/bin/time -p git -C "$AGENTSWEB_DIR" sparse-checkout set lolgames_tunnel
+          /usr/bin/time -p test -f "$AGENTSWEB_DIR/lolgames_tunnel/client.py"
+      - name: Start AgentsWeb SSH session
+        id: agentsweb
+        timeout-minutes: 5
+        if: env.TEST_REQUEST != 'true' && env.AGENTSWEB_SSH_ENABLED == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GITHUB_RUN_NUMBER starts at 1 in every repository, so using it here
+          # makes every new repository's first OMG run contend for port 32001.
+          # GITHUB_RUN_ID is globally unique and distributes runs across the
+          # broker's 32000-32999 public-port range.
+          REQUESTED_SSH_PORT=$((32000 + GITHUB_RUN_ID % 1000))
+          # Reuse the runner's sshd without touching apt or preview dependencies.
+          if [[ "$RUNNER_OS" == 'Linux' && ! -x /usr/sbin/sshd ]]; then
+            /usr/bin/time -p timeout --kill-after=10s 90s sudo -n apt-get \
+              -o Acquire::ForceIPv4=true -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            /usr/bin/time -p timeout --kill-after=10s 90s sudo -n apt-get \
+              -o Acquire::ForceIPv4=true -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y openssh-server
+          fi
+          /usr/bin/time -p test -x /usr/sbin/sshd
+          install -d -m 700 "$SSH_DIR"
+          SSH_KEY="$RUNNER_TEMP/opencode-agentsweb-id_ed25519"
+          SSH_PUBLIC_KEY="$SSH_KEY.pub"
+          printf 'SSH_KEY=%s\nSSH_PUBLIC_KEY=%s\n' "$SSH_KEY" "$SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
+          ssh-keygen -t ed25519 -f "$SSH_KEY" -N '' -q
+          chmod 600 "$SSH_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          {
+            cat "$SSH_PUBLIC_KEY"
+            printf '%s\n' "$AGENTSWEB_SSH_PUBLIC_KEY"
+          } > "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          [[ "$RUNNER_OS" != 'Linux' ]] || sudo mkdir -p /run/sshd
+          # shellcheck disable=SC2024
+          sudo /usr/sbin/sshd -D -e -p 2222 \
+            -o PasswordAuthentication=no -o PermitRootLogin=no \
+            -o PubkeyAuthentication=yes > "$SSH_DIR/sshd.log" 2>&1 &
+          echo $! > "$SSH_DIR/sshd.pid"
+          is_listening() {
+            if [[ "$RUNNER_OS" == 'macOS' ]]; then
+              if command -v nc >/dev/null 2>&1 && nc -z -w 1 127.0.0.1 2222 >/dev/null 2>&1; then
+                return 0
+              fi
+              command -v lsof >/dev/null 2>&1 && sudo lsof -nP -a -iTCP:2222 -sTCP:LISTEN >/dev/null 2>&1
+            elif command -v ss >/dev/null 2>&1; then
+              ss -ltn | grep -q ':2222 '
+            elif command -v lsof >/dev/null 2>&1; then
+              lsof -nP -a -iTCP:2222 -sTCP:LISTEN >/dev/null 2>&1
+            else
+              nc -z 127.0.0.1 2222 >/dev/null 2>&1
+            fi
+          }
+          for _ in {1..120}; do
+            if is_listening; then
+              break
+            fi
+            if ! kill -0 "$(cat "$SSH_DIR/sshd.pid")" 2>/dev/null; then
+              echo 'Local sshd exited before listening on port 2222.' >&2
+              sed -n '1,160p' "$SSH_DIR/sshd.log" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if ! is_listening; then
+            echo 'Local sshd did not start listening on port 2222.' >&2
+            sed -n '1,160p' "$SSH_DIR/sshd.log" >&2
+            exit 1
+          fi
+          nohup env PYTHONPATH="$AGENTSWEB_DIR" \
+            python3 -m lolgames_tunnel client 127.0.0.1:2222 \
+            --server agentsweb.space --name "$SSH_NAME" --public-port "$REQUESTED_SSH_PORT" \
+            > "$SSH_DIR/tunnel.log" 2>&1 &
+          echo $! > "$SSH_DIR/tunnel.pid"
+          for _ in {1..45}; do
+            grep -q '^ssh://' "$SSH_DIR/tunnel.log" && break
+            if ! kill -0 "$(cat "$SSH_DIR/tunnel.pid")" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if ! grep -q '^ssh://' "$SSH_DIR/tunnel.log"; then
+            echo 'AgentsWeb tunnel did not register.' >&2
+            sed -n '1,160p' "$SSH_DIR/tunnel.log" >&2
+            exit 1
+          fi
+          SSH_TUNNEL_URL="$(sed -n 's#^\(ssh://[^[:space:]]*\).*#\1#p' "$SSH_DIR/tunnel.log" | head -n 1)"
+          endpoint="$(sed -nE 's#^ssh://([^:[:space:]]+):([0-9]+).*$#\1 \2#p' "$SSH_DIR/tunnel.log" | head -n 1)"
+          if [[ -z "$endpoint" ]]; then
+            echo 'AgentsWeb tunnel registration did not contain a usable SSH endpoint.' >&2
+            sed -n '1,160p' "$SSH_DIR/tunnel.log" >&2
+            exit 1
+          fi
+          read -r SSH_HOST SSH_PORT <<<"$endpoint"
+          [[ -n "$SSH_HOST" && "$SSH_PORT" =~ ^[0-9]+$ ]]
+          SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/aiplay-agentsweb -p ${SSH_PORT} runner@${SSH_HOST}"
+          {
+            printf 'AGENTSWEB_HOST=%s\n' "$SSH_HOST"
+            printf 'AGENTSWEB_PORT=%s\n' "$SSH_PORT"
+            printf 'AGENTSWEB_COMMAND=%s\n' "$SSH_COMMAND"
+            printf 'AGENTSWEB_TUNNEL_URL=%s\n' "$SSH_TUNNEL_URL"
+          } >> "$GITHUB_ENV"
+          {
+            printf 'AGENTSWEB_HOST=%s\n' "$SSH_HOST"
+            printf 'AGENTSWEB_PORT=%s\n' "$SSH_PORT"
+            printf 'AGENTSWEB_COMMAND=%s\n' "$SSH_COMMAND"
+            printf 'AGENTSWEB_TUNNEL_URL=%s\n' "$SSH_TUNNEL_URL"
+          } > "$SSH_DIR/access.env"
+          printf 'host=%s\nport=%s\ncommand=%s\n' "$SSH_HOST" "$SSH_PORT" "$SSH_COMMAND" >> "$GITHUB_OUTPUT"
+          ssh_verified=''
+          for _ in {1..3}; do
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 \
+              -i "$SSH_KEY" -p "$SSH_PORT" "runner@$SSH_HOST" true; then
+              ssh_verified='true'
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$ssh_verified" != 'true' ]]; then
+            echo 'AgentsWeb registered, but the SSH endpoint is not reachable.' >&2
+            sed -n '1,160p' "$SSH_DIR/tunnel.log" >&2
+            exit 1
+          fi
+          if [[ "$SSH_ONLY_REQUEST" == 'true' ]]; then
+            body=$'🔐 **SSH-only debugging session is ready.**\n\n'
+          else
+            body=$'🔐 **Temporary AgentsWeb SSH session is ready.**\n\n'
+          fi
+          body+="Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"$'\n'
+          body+="SSH URL: \`${SSH_TUNNEL_URL}\`"$'\n'
+          body+="Host: \`${SSH_HOST}:${SSH_PORT}\`"$'\n\n'
+          body+=$'Connect while the job is active:\n\n```sh\n'
+          body+="${SSH_COMMAND}"$'\n```\n\n'
+          if [[ "$SSH_ONLY_REQUEST" == 'true' ]]; then
+            body+=$'This run skips OpenCode and holds the runner for five hours for interactive debugging.'
+          fi
+          comment_response="$(jq -n --arg body "$body" '{body: $body}' \
+            | gh api "repos/${TARGET_REPOSITORY}/issues/${TRIGGER_ISSUE_NUMBER}/comments" \
+              --method POST --input -)"
+          comment_id="$(jq -r '.id // empty' <<<"$comment_response")"
+          [[ -n "$comment_id" ]]
+          printf 'comment_id=%s\n' "$comment_id" >> "$GITHUB_OUTPUT"
+
+          /usr/bin/time -p printf '## Worker SSH\n\n```sh\n%s\n```\n' "$SSH_COMMAND" >> "$GITHUB_STEP_SUMMARY"
+      - name: Prepare selected remix snapshot
+        timeout-minutes: 15
+        shell: bash
+        run: /usr/bin/time -p node "$RUNTIME_DIR/scripts/remix-snapshot.mjs"
+      - name: Load saved game checkpoint
+        if: env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: /usr/bin/time -p node "$RUNTIME_DIR/scripts/session-checkpoint.mjs" prepare
+      - name: Select OpenCode runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          printf 'OPENCODE_PASSWORD=%s\nGOAL_REQUEST=false\nRALPH_REQUEST=false\nOMO_REQUEST=false\n' "$password" >> "$GITHUB_ENV"
+      - name: Configure Linux Playwright CLI with WebGPU
+        timeout-minutes: 20
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/setup-linux-playwright.sh"
+      - name: Resolve project directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$TEST_REQUEST" == 'true' ]]; then
+            PROJECT_PATH='workflow-test-project'
+          fi
+          if [[ "$PROJECT_PATH" = /* || "$PROJECT_PATH" =~ (^|/)\.\.(/|$) ]]; then
+            echo "PROJECT_DIR must be a path inside the repository: $PROJECT_PATH" >&2
+            exit 1
+          fi
+          project_path="${PROJECT_PATH#./}"
+          project_path="${project_path%/}"
+          project_path="${project_path:-.}"
+          if [[ "$project_path" == '.' ]]; then
+            resolved_project_dir="$GITHUB_WORKSPACE"
+          else
+            resolved_project_dir="$GITHUB_WORKSPACE/$project_path"
+          fi
+          printf 'PROJECT_PATH=%s\n' "$project_path" >> "$GITHUB_ENV"
+          printf 'PROJECT_DIR=%s\n' "$resolved_project_dir" >> "$GITHUB_ENV"
+      - name: Ignore generated project files before OpenCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p mkdir -p "$PROJECT_DIR"
+          /usr/bin/time -p touch "$PROJECT_DIR/.gitignore"
+          for pattern in 'screenshots/' '*.log' '*.pid' '.agents/' '.agentsweb/' \
+            '.omgithub-runtime/' '.opencode-ssh/' '.opencode-web/' 'node_modules/'; do
+            if ! /usr/bin/time -p grep -qxF "$pattern" "$PROJECT_DIR/.gitignore"; then
+              /usr/bin/time -p printf '\n%s\n' "$pattern" >> "$PROJECT_DIR/.gitignore"
+            fi
+          done
+      - name: Checkout shared OpenCode skills
+        if: env.TEST_REQUEST != 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: denaidark/skills
+          path: ${{ env.PROJECT_PATH }}/.agents
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exclude shared skills from generated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_path="${PROJECT_PATH#./}"
+          project_path="${project_path%/}"
+          [[ "$project_path" != '.' ]] || project_path=''
+          skills_path="${project_path:+/$project_path}/.agents/"
+          ralph_state_path="${project_path:+/$project_path}/.opencode/ralph-loop.local.md"
+          screenshots_path="${project_path:+/$project_path}/screenshots/"
+          grep -qxF "$skills_path" .git/info/exclude || echo "$skills_path" >> .git/info/exclude
+          grep -qxF "$ralph_state_path" .git/info/exclude || echo "$ralph_state_path" >> .git/info/exclude
+          grep -qxF "$screenshots_path" .git/info/exclude || echo "$screenshots_path" >> .git/info/exclude
+          for pattern in '*.log' '*.pid'; do
+            grep -qxF "$pattern" .git/info/exclude || echo "$pattern" >> .git/info/exclude
+          done
+          for relative_runtime_path in '.agentsweb/' '.omgithub-runtime/' '.opencode/goals/' \
+            '.opencode-ssh/' '.opencode-web/' 'opencode-agentsweb-id_ed25519' \
+            'opencode-agentsweb-id_ed25519.pub'; do
+            runtime_path="${project_path:+/$project_path}/$relative_runtime_path"
+            grep -qxF "$runtime_path" .git/info/exclude || echo "$runtime_path" >> .git/info/exclude
+          done
+      - name: Install worker instructions
+        if: env.TEST_REQUEST != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d "$PROJECT_DIR"
+          template_dir="$RUNTIME_DIR/.github/templates"
+          base_template="$template_dir/agents.template.md"
+          echo "Loading worker templates from $template_dir for labels: $LABELS_JSON"
+          [[ -f "$base_template" ]] || { echo "Missing worker base template: $base_template" >&2; exit 1; }
+          cp "$base_template" "$PROJECT_DIR/Agents.md"
+
+          append_template() {
+            local template="$1"
+            [[ -f "$template" ]] || { echo "Missing worker label template: $template" >&2; exit 1; }
+            printf '\n' >> "$PROJECT_DIR/Agents.md"
+            cat "$template" >> "$PROJECT_DIR/Agents.md"
+          }
+
+          # Match issue labels and request hashtags to template stems generically.
+          template_keys="$(node -e '
+            const labels = JSON.parse(process.env.LABELS_JSON || "[]");
+            const tags = [...(process.env.COMMENT_BODY || "").matchAll(/(?:^|[^A-Za-z0-9_])#([A-Za-z0-9_-]+)/g)].map(match => match[1]);
+            const keys = [...labels, ...tags].map(key => key.trim().toLowerCase());
+            const platform = keys.includes("mac") ? "mac" : "linux";
+            process.stdout.write(JSON.stringify([...keys.filter(key => key !== "mac" && key !== "linux"), platform]));
+          ')"
+          while IFS= read -r template; do
+            template_name="${template##*/}"
+            template_stem="${template_name%.md}"
+            if jq -e --arg name "$template_stem" \
+              'any(.[]; ((ascii_downcase | gsub("^[[:space:]]+|[[:space:]]+$"; "")) == ($name | ascii_downcase)))' \
+              <<< "$template_keys" >/dev/null; then
+              append_template "$template"
+            fi
+          done < <(find "$template_dir" -maxdepth 1 -type f -name '*.md' ! -name 'agents.template.md' -print | sort)
+      - name: Mark issue in progress
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          GOAL_REQUEST: ${{ env.GOAL_REQUEST }}
+          RALPH_REQUEST: ${{ env.RALPH_REQUEST }}
+        with:
+          retries: 3
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const fs = require('node:fs');
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const statuses = ['in progress', 'validating', 'complete', 'failed'];
+            for (const status of statuses) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+                  issue_number: number, name: status
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            await github.rest.issues.addLabels({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number,
+              labels: [
+                'in progress',
+                ...(process.env.GOAL_REQUEST === 'true' ? ['Goal'] : []),
+                ...(process.env.RALPH_REQUEST === 'true' ? ['ralph'] : [])
+              ]
+            });
+      - name: Install preview process manager
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/setup-preview-runtime.sh"
+      - name: Post SSH-only access details
+        id: ssh_access_comment
+        if: env.SSH_ONLY_REQUEST == 'true' && env.AGENTSWEB_SSH_ENABLED != 'true'
+        uses: actions/github-script@v7
+        env:
+          AGENTSWEB_SSH_ENABLED: ${{ env.AGENTSWEB_SSH_ENABLED }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const run = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '❌ **SSH-only debugging session could not start.**', '',
+              `Run: ${run}`, 'The `AGENTSWEB_SSH_PUBLIC_KEY` secret is not configured.'
+            ].join('\n');
+            const comment = await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, body
+            });
+            core.setOutput('comment_id', comment.data.id);
+            if (process.env.AGENTSWEB_SSH_ENABLED !== 'true') core.setFailed('AGENTSWEB SSH is required for the ssh label.');
+      - name: Hold SSH-only debugging session
+        if: env.SSH_ONLY_REQUEST == 'true' && env.AGENTSWEB_SSH_ENABLED == 'true' && steps.agentsweb.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tunnel_pid="$(<"$SSH_DIR/tunnel.pid")"
+          for _ in {1..18000}; do
+            if ! kill -0 "$tunnel_pid" 2>/dev/null; then
+              echo 'AgentsWeb tunnel exited during the SSH-only hold.' >&2
+              exit 1
+            fi
+            sleep 1
+          done
+      - name: Report SSH-only startup failure
+        id: ssh_failure_comment
+        if: always() && env.SSH_ONLY_REQUEST == 'true' && env.AGENTSWEB_SSH_ENABLED == 'true' && steps.agentsweb.outcome != 'success'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const run = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const comment = await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number,
+              body: [
+                '❌ **SSH-only debugging session could not start.**', '',
+                `Run: ${run}`,
+                'AgentsWeb registration or the SSH connectivity check failed. See the workflow logs for the tunnel output.'
+              ].join('\n')
+            });
+            core.setOutput('comment_id', comment.data.id);
+            core.setFailed('AgentsWeb registration or SSH connectivity check failed.');
+      - name: Configure Mac runner DNS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/setup-mac-dns.sh"
+      - name: Configure Mac Playwright CLI with Metal
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/setup-mac-playwright.sh"
+      - name: Cache FRP client
+        if: env.SSH_ONLY_REQUEST != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/frp-cache
+          key: frp-0.71.1-${{ runner.os }}-${{ runner.arch }}-${{ github.workflow_sha }}
+      - name: Start OpenCode web UI and Cloudflare tunnel
+        id: opencode_web
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$OPENCODE_WEB_DIR"
+          # Exact runner commit for this run; build-stats reports it so the project can show it.
+          printf '%s\n' "$RUNTIME_REF" > "$OPENCODE_WEB_DIR/runtime-ref.txt"
+          # Pinned: the image-history plugin targets the v2.2.5 plugin API (session.context, shell.create.before).
+          OPENCODE_VERSION="${OPENCODE_PINNED_VERSION:-2.2.5}"
+          [[ "$OPENCODE_VERSION" =~ ^2\.[0-9]+\.[0-9]+$ ]]
+          /usr/bin/time -p curl --fail --silent --show-error --location https://opencode.ai/v2/install -o "$OPENCODE_WEB_DIR/install-v2.sh"
+          /usr/bin/time -p bash "$OPENCODE_WEB_DIR/install-v2.sh" --version "$OPENCODE_VERSION" --no-modify-path
+
+          OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+          [[ -x "$OPENCODE_BIN" ]]
+          # The installer runs in a child shell; publish PATH for Actions and fresh SSH shells.
+          export PATH="$HOME/.opencode/bin:$PATH"
+          printf '%s\n' "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          /usr/bin/time -p sudo -n ln -sfn "$OPENCODE_BIN" /usr/local/bin/opencode
+          actual_version="$(/usr/bin/time -p "$OPENCODE_BIN" --version)"
+          [[ "$actual_version" == "opencode v$OPENCODE_VERSION" ]]
+          printf 'Resolved latest stable OpenCode: %s\n' "$actual_version"
+          /usr/bin/time -p opencode --version
+          /usr/bin/time -p env PATH=/usr/local/bin:/usr/bin:/bin /bin/bash -c 'command -v opencode; opencode --version'
+          install -d -m 700 "$HOME/.config/opencode"
+          cat > "$HOME/.config/opencode/opencode.json" <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [],
+            "media": {
+              "image": {
+                "max_width": 1024,
+                "max_height": 1024,
+                "max_base64_bytes": 150000
+              }
+            },
+            "permission": {
+              "*": "allow",
+              "task": "allow"
+            }
+          }
+          EOF
+
+          config_tmp="$OPENCODE_WEB_DIR/opencode.json"
+          /usr/bin/time -p jq '.plugin = []' "$HOME/.config/opencode/opencode.json" > "$config_tmp"
+
+          /usr/bin/time -p mv "$config_tmp" "$HOME/.config/opencode/opencode.json"
+          # Keep only the newest 2 images in model context; strip proxy env from bash-tool children.
+          image_history_plugin="$RUNTIME_DIR/scripts/opencode-plugins/image-history"
+          [[ -f "$image_history_plugin/server.js" ]]
+          /usr/bin/time -p jq --arg plugin "$image_history_plugin" \
+            '.plugins = (((.plugins // []) + [$plugin]) | unique)' \
+            "$HOME/.config/opencode/opencode.json" > "$config_tmp"
+          /usr/bin/time -p mv "$config_tmp" "$HOME/.config/opencode/opencode.json"
+          if [[ -n "${FUSION_ACCESS_TOKEN:-}" ]]; then
+            plugin_repo='https://github.com/denaidark/opencode-copilot-fusion.git'
+            plugin_commit='8275beda04bbfaa395c073a6b83f89c93801bca2'
+            if [[ "$plugin_commit" =~ ^[a-f0-9]{40}$ ]]; then
+              printf 'FUSION_PLUGIN_COMMIT=%s\n' "$plugin_commit" >> "$GITHUB_ENV"
+              printf '%s\n' "$plugin_commit" > "$OPENCODE_WEB_DIR/fusion-plugin-commit.txt"
+              printf '[fusion-plugin] commit=%s\n' "$plugin_commit" >> "$OPENCODE_WEB_DIR/opencode-run.log"
+              /usr/bin/time -p jq --arg plugin "git+$plugin_repo#$plugin_commit" \
+                '.plugins = (((.plugins // []) + [$plugin]) | unique) | .small_model = "copilot-fusion-direct/fusion" | .agents.title.model = "copilot-fusion-direct/fusion" | .agents.compaction.model = "copilot-fusion-direct/fusion"' \
+                "$HOME/.config/opencode/opencode.json" > "$config_tmp"
+              /usr/bin/time -p mv "$config_tmp" "$HOME/.config/opencode/opencode.json"
+              echo "Installed reviewed Copilot Fusion plugin commit $plugin_commit."
+            else
+              printf 'FUSION_PLUGIN_COMMIT=unavailable\n' >> "$GITHUB_ENV"
+              echo 'Invalid reviewed Copilot Fusion commit; keeping the free model chain.' >&2
+            fi
+          fi
+          # Install the reviewed foreground compaction/chunking policy after Fusion.
+          fusion_policy="$RUNTIME_DIR/scripts/opencode-plugins/fusion-policy"
+          [[ -f "$fusion_policy/index.mjs" ]]
+          /usr/bin/time -p jq --arg plugin "$fusion_policy" \
+            '.plugins = ((.plugins // []) + [$plugin]) | .experimental.background_compaction = false' \
+            "$HOME/.config/opencode/opencode.json" > "$config_tmp"
+          /usr/bin/time -p mv "$config_tmp" "$HOME/.config/opencode/opencode.json"
+          PORTS="$(node --input-type=module -e '
+            import net from "node:net";
+            const ports = [];
+            for (let index = 0; index < 3; index += 1) {
+              const server = net.createServer();
+              await new Promise((resolve, reject) => {
+                server.once("error", reject);
+                server.listen(0, "127.0.0.1", resolve);
+              });
+              ports.push(server.address().port);
+              server.close();
+            }
+            console.log(ports.join(" "));
+          ')"
+          read -r OPENCODE_WEB_PORT PROJECT_FILE_PORT OPENCODE_CONTROL_PORT <<< "$PORTS"
+          [[ "$OPENCODE_WEB_PORT" =~ ^[0-9]+$ && "$PROJECT_FILE_PORT" =~ ^[0-9]+$ ]]
+          {
+            printf 'OPENCODE_WEB_PORT=%s\n' "$OPENCODE_WEB_PORT"
+            printf 'PROJECT_FILE_PORT=%s\n' "$PROJECT_FILE_PORT"
+            printf 'OPENCODE_CONTROL_PORT=%s\n' "$OPENCODE_CONTROL_PORT"
+          } >> "$GITHUB_ENV"
+          # WIP capture skips these controller ports; OpenCode's tools do not inherit all of them.
+          printf '%s %s %s\n' "$OPENCODE_WEB_PORT" "$PROJECT_FILE_PORT" "$OPENCODE_CONTROL_PORT" > "$OPENCODE_WEB_DIR/controller-ports"
+          echo "Allocated OpenCode port: $OPENCODE_WEB_PORT"
+          echo "Allocated project file server port: $PROJECT_FILE_PORT"
+          DEVICE_PROXY=''
+          GENERAL_PROXY=''
+          # Phone-first egress (live WS presence). Quiet skip when available:false.
+          # models.opencode.ai is NOT on the device allowlist — it uses WARP/direct
+          # via compose-egress-proxy.sh when the phone is also up.
+          if bash "$RUNTIME_DIR/scripts/device-proxy.sh" "$RUNNER_TEMP/device-proxy" "$OPENCODE_BIN" "$OPENCODE_WEB_DIR" \
+            && DEVICE_PROXY="$(cat "$RUNNER_TEMP/device-proxy/proxy-url" 2>/dev/null)" && [[ "$DEVICE_PROXY" == http://127.0.0.1:* ]]; then
+            echo "Device relay ready (opencode.ai + openrouter.ai; models.opencode.ai stays off the phone)"
+            echo "- Device relay: on (phone for opencode.ai / openrouter.ai; models.opencode.ai goes direct)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            DEVICE_PROXY=''
+          fi
+          # Compose final HTTPS_PROXY for opencode serve: the phone relay only; models go direct.
+          WARP_PROXY=''
+          if [[ -n "$DEVICE_PROXY" ]]; then
+            if WARP_PROXY="$(bash "$RUNTIME_DIR/scripts/compose-egress-proxy.sh" "$RUNNER_TEMP/egress-mux" "$DEVICE_PROXY")" \
+              && [[ "$WARP_PROXY" == http://127.0.0.1:* ]]; then
+              echo "Egress mux ready (device + direct for models)"
+            else
+              echo "::warning title=Egress mux failed::Falling back to device relay only."
+              WARP_PROXY="$DEVICE_PROXY"
+            fi
+          fi
+          # Admin build stats: record the start.
+          date +%s%3N > "$OPENCODE_WEB_DIR/build-started-at" 2>/dev/null || true
+          timeout 20 node "$RUNTIME_DIR/scripts/run-record.mjs" starting >/dev/null 2>&1 || true
+          OPENCODE_BIN="$OPENCODE_BIN" bash "$RUNTIME_DIR/scripts/start-opencode-serve.sh" "$WARP_PROXY"
+          wait_for_http() {
+            local url="$1"
+            local attempts="$2"
+            local response_code
+            for _ in $(seq 1 "$attempts"); do
+              response_code="$(curl --silent --show-error --max-time 3 \
+                --output /dev/null --write-out '%{http_code}' "$url" || true)"
+              if [[ "$response_code" =~ ^2[0-9][0-9]$ ]]; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+          wait_for_http_response() {
+            local url="$1"
+            local attempts="$2"
+            local response_code
+            for _ in $(seq 1 "$attempts"); do
+              response_code="$(curl --silent --show-error --max-time 3 \
+                --output /dev/null --write-out '%{http_code}' "$url" || true)"
+              if [[ "$response_code" =~ ^[1-5][0-9][0-9]$ ]]; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+          healthy=false
+          for _ in {1..45}; do
+            if curl --fail --silent --show-error --max-time 3 -u "opencode:$OPENCODE_PASSWORD" "http://127.0.0.1:$OPENCODE_WEB_PORT/api/info" > "$OPENCODE_WEB_DIR/info.json" && \
+              node -e 'const i=require(process.argv[1]);if(i.version!==process.argv[2])process.exit(1)' "$OPENCODE_WEB_DIR/info.json" "$OPENCODE_VERSION"; then healthy=true; break; fi
+            sleep 1
+          done
+          [[ "$healthy" == true ]] || { echo 'OpenCode V2 server did not become healthy' >&2; exit 1; }
+
+          export OPENCODE_WEB_PORT
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/account-credentials.mjs" install-console
+          nohup node "$RUNTIME_DIR/scripts/account-credentials.mjs" watch > "$RUNNER_TEMP/omgithub-account-auth-sync.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/omgithub-account-auth-sync.pid"
+
+          export PROJECT_FILE_PORT
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/start-live-files.sh"
+          echo 'Tunnel OpenCode, live source files, and final preview independently'
+          FRP_VERSION='0.71.1'
+          case "$RUNNER_OS/$RUNNER_ARCH" in
+            Linux/X64) FRP_ASSET="linux_amd64" ;;
+            Linux/ARM64) FRP_ASSET="linux_arm64" ;;
+            macOS/X64) FRP_ASSET="darwin_amd64" ;;
+            macOS/ARM64) FRP_ASSET="darwin_arm64" ;;
+            *) echo "Unsupported runner platform: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          /usr/bin/time -p bash "$RUNTIME_DIR/scripts/download-frp.sh" "$FRP_VERSION" "$FRP_ASSET" "$OPENCODE_WEB_DIR" "$RUNNER_TEMP/frp-cache"
+          export OPENCODE_CONTROL_PORT OPENCODE_WEB_PORT
+          export GH_TOKEN='${{ github.token }}'
+          nohup node "$RUNTIME_DIR/scripts/session-lifecycle.mjs" > "$OPENCODE_WEB_DIR/lifecycle.log" 2>&1 &
+          printf '%s\n' "$!" > "$OPENCODE_WEB_DIR/lifecycle.pid"
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/worker-tunnel.mjs" start
+          /usr/bin/time -p curl --fail --silent "http://127.0.0.1:$OPENCODE_CONTROL_PORT/omgithub/heartbeat"
+      - name: Configure Git identity
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: |
+          git config user.name 'opencode[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Create OpenCode branch
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p git checkout -B "$BRANCH_NAME" "$TARGET_SHA"
+      - name: Generate mock OpenCode project
+        if: env.TEST_REQUEST == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p install -d "$PROJECT_DIR"
+          /usr/bin/time -p cp -R "$RUNTIME_DIR/.github/fixtures/test-project/." "$PROJECT_DIR/"
+          /usr/bin/time -p node "$PROJECT_DIR/scripts/write-build-metadata.mjs" \
+            "$PROJECT_DIR/build.json" "$GITHUB_RUN_ID" "$TRIGGER_ISSUE_NUMBER" "$TARGET_REPOSITORY"
+          /usr/bin/time -p test -f "$PROJECT_DIR/index.html"
+          /usr/bin/time -p test -f "$PROJECT_DIR/package.json"
+          /usr/bin/time -p install -d "$OPENCODE_WEB_DIR"
+          /usr/bin/time -p cp "$RUNTIME_DIR/.github/fixtures/test-project-start.sh" "$PROJECT_DIR/start.sh"
+      - name: Resolve OpenCode model and skill labels
+        id: opencode_labels
+        if: env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const [labelsResponse, issueResponse] = await Promise.all([
+              github.rest.issues.listLabelsOnIssue({
+                owner: process.env.TARGET_OWNER,
+                repo: process.env.TARGET_REPO,
+                issue_number: number,
+                sort: 'created',
+                direction: 'asc',
+                per_page: 100
+              }),
+              github.rest.issues.get({
+                owner: process.env.TARGET_OWNER,
+                repo: process.env.TARGET_REPO,
+                issue_number: number
+              })
+            ]);
+            const names = labelsResponse.data.map(({ name }) => name);
+            const modelLabels = names.filter((name) => name.startsWith('model/'));
+            if (modelLabels.length > 1) {
+              core.setFailed(`Expected at most one model/* label, found: ${modelLabels.join(', ')}`);
+              return;
+            }
+            const { parseIssueRequest } = await import(`${process.env.RUNTIME_DIR}/scripts/issue-request.mjs`);
+            const { modelList } = parseIssueRequest(issueResponse.data);
+            const { resolveRunModels } = await import(`${process.env.RUNTIME_DIR}/scripts/run-with-model-fallback.mjs`);
+            const fusionEnabled = /^[a-f0-9]{40}$/.test(String(process.env.FUSION_PLUGIN_COMMIT || ''));
+            let live = null;
+            try {
+              const catalog = await (await fetch('https://models.opencode.ai/api.json', { signal: AbortSignal.timeout(15000) })).json();
+              live = Object.entries(catalog.opencode?.models || {})
+                .filter(([, row]) => row.status !== 'deprecated' && row.tool_call === true && row.cost?.input === 0 && row.cost?.output === 0)
+                .map(([id]) => `opencode/${id}`);
+            } catch (error) { core.warning(`OpenCode model catalog unavailable: ${error.message}`); }
+            const requireShared = process.env.FUSION_REQUIRE_SHARED === 'true';
+            const selected = modelLabels[0]?.slice('model/'.length);
+            const { model, models, routes } = resolveRunModels({ selected, live, fusionEnabled, requireShared, forceSharedTest: process.env.FUSION_FORCE_SHARED_TEST === 'true', route: process.env.FUSION_ROUTE, modelList });
+            if (requireShared) core.info('Shared Fusion checkout overrides inherited model labels; primary cannot fall back to a free provider.');
+            const skills = names.filter((name) => name.startsWith('skill/'))
+              .map((name) => name.slice('skill/'.length)).sort();
+            core.setOutput('model', model);
+            core.setOutput('models_json', JSON.stringify(models));
+            core.setOutput('routes_json', JSON.stringify(routes));
+            core.setOutput('variant', ['openai/gpt-6.1-sol', 'openai/gpt-6-astra'].includes(model) ? 'high' : '');
+            core.setOutput('skills_json', JSON.stringify(skills));
+            core.info(`Resolved model=${model}; fusion=${fusionEnabled}; sequence=${models.join(' → ')}; skills=${skills.join(', ') || '(none)'}`);
+      - name: Restore saved OpenCode conversation
+        if: env.RESUME_CHECKPOINT_FILE != '' && env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: /usr/bin/time -p node "$RUNTIME_DIR/scripts/session-checkpoint.mjs" restore
+      - name: Initialize project worker
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/provision-project.mjs"
+          /usr/bin/time -p bash -n startup.sh
+          /usr/bin/time -p bash startup.sh
+      - name: Publish restored workspace
+        if: env.RESUME_SESSION_ID != '' && env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const { projectLink } = require(`${process.env.RUNTIME_DIR}/scripts/project-link.cjs`);
+            const body = projectLink(process.env);
+            await github.rest.issues.createComment({ owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: Number(process.env.TRIGGER_ISSUE_NUMBER), body });
+      - name: Start saved app before OpenCode
+        id: resume_app
+        if: env.RESUME_SESSION_ID != '' && env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f start.sh ]]; then
+            echo 'Saved project has no start.sh. Run verification after the user request.'
+            echo 'RESUME_STARTUP_STATUS=missing' >> "$GITHUB_ENV"
+          elif /usr/bin/time -p bash "$RUNTIME_DIR/scripts/start-project.sh"; then
+            echo 'RESUME_STARTUP_STATUS=ready' >> "$GITHUB_ENV"
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Saved startup failed. Run verification after the user request.'
+            echo 'RESUME_STARTUP_STATUS=failed' >> "$GITHUB_ENV"
+          fi
+      - name: Publish restored preview
+        if: steps.resume_app.outputs.ready == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: Number(process.env.TRIGGER_ISSUE_NUMBER),
+              body: `${require(`${process.env.RUNTIME_DIR}/scripts/project-link.cjs`).projectLink(process.env)}\n\nRestored app is ready. New changes are not yet verified.`
+            });
+      - name: Run OpenCode and locate its web session
+        id: opencode_run
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENCODE_WEB_URL: ${{ steps.opencode_web.outputs.url }}
+          OPENCODE_MODEL: ${{ steps.opencode_labels.outputs.model }}
+          OPENCODE_MODELS_JSON: ${{ steps.opencode_labels.outputs.models_json }}
+          OPENCODE_MODEL_ROUTES_JSON: ${{ steps.opencode_labels.outputs.routes_json }}
+          OPENCODE_VARIANT: ${{ steps.opencode_labels.outputs.variant }}
+          OPENCODE_SKILLS: ${{ steps.opencode_labels.outputs.skills_json }}
+          GOAL_REQUEST: ${{ env.GOAL_REQUEST }}
+          RALPH_REQUEST: ${{ env.RALPH_REQUEST }}
+          OMO_REQUEST: ${{ env.OMO_REQUEST }}
+        run: |
+          set -euo pipefail
+          if [[ "$TEST_REQUEST" == 'true' ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/seed-test-session.mjs"
+            RESUME_SESSION_ID="$(cat "$OPENCODE_WEB_DIR/synthetic-session-id")"
+            printf '%s\n' fixture > "$OPENCODE_WEB_DIR/main-model"
+          else
+          OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+          PROMPT_FILE="$OPENCODE_WEB_DIR/prompt.txt"
+          RUN_LOG="$OPENCODE_WEB_DIR/opencode-run.log"
+          RUN_EXIT="$OPENCODE_WEB_DIR/opencode-run.exit"
+          printf '%s\n' "$OPENCODE_MODEL" > "$OPENCODE_WEB_DIR/main-model"
+          if [[ -n "${RESUME_SESSION_ID:-}" ]]; then
+            printf '%s' "$COMMENT_BODY" > "$PROMPT_FILE"
+          else
+            skill_text="$(jq -r 'if length == 0 then "(none)" else join(", ") end' <<<"$OPENCODE_SKILLS")"
+            prompt_template="$(< "$RUNTIME_DIR/.github/prompts/01-build.md")"
+            request_text="$COMMENT_BODY"
+            prompt="${prompt_template//@COMMENT_BODY@/$request_text}"
+            prompt="${prompt//@OPENCODE_MODEL@/$OPENCODE_MODEL}"
+            prompt="${prompt//@SKILL_TEXT@/$skill_text}"
+            printf '%s\n' "$prompt" > "$PROMPT_FILE"
+          fi
+          nohup node "$RUNTIME_DIR/scripts/run-with-model-fallback.mjs" \
+            "$OPENCODE_BIN" "$OPENCODE_WEB_PORT" "$PROMPT_FILE" "$RUN_LOG" "$RUN_EXIT" "$OPENCODE_MODEL" \
+            > /dev/null 2>&1 &
+          echo $! > "$OPENCODE_WEB_DIR/opencode-run.pid"
+          fi
+          SESSION_ID="${RESUME_SESSION_ID:-}"
+          for _ in {1..120}; do
+            [[ "$SESSION_ID" == ses_* ]] && break
+            SESSION_ID="$(node -e 'const fs=require("fs");try { for(const line of fs.readFileSync(process.argv[1],"utf8").split("\n")) { try { const row=JSON.parse(line); if(/^ses_[A-Za-z0-9]+$/.test(row.sessionID||"")) { process.stdout.write(row.sessionID); break } } catch {} } } catch {}' "$OPENCODE_WEB_DIR/opencode-run.log")"
+
+            [[ "$SESSION_ID" == ses_* ]] && break
+            [[ -f "$OPENCODE_WEB_DIR/opencode-run.exit" ]] && { tail -40 "$OPENCODE_WEB_DIR/opencode-run.log" >&2; break; }
+            sleep 1
+          done
+          [[ "$SESSION_ID" == ses_* ]]
+          /usr/bin/time -p printf '%s\n' "$SESSION_ID" > "$OPENCODE_WEB_DIR/checkpoint-session-id"
+          /usr/bin/time -p curl --fail --silent "http://127.0.0.1:$OPENCODE_CONTROL_PORT/omgithub/heartbeat"
+          /usr/bin/time -p curl --fail --silent "http://127.0.0.1:$OPENCODE_CONTROL_PORT/omgithub/reconcile"
+          SESSION_URL="$(node --input-type=module -e "import { v2SessionUrl } from '$RUNTIME_DIR/scripts/opencode-v2-api.mjs';console.log(v2SessionUrl(process.argv[1],process.argv[2]))" "$OPENCODE_WEB_URL" "$SESSION_ID")"
+
+          printf 'session_id=%s\nsession_url=%s\n' "$SESSION_ID" "$SESSION_URL" >> "$GITHUB_OUTPUT"
+      - name: Post temporary access details
+        id: access_comment
+        if: env.SSH_ONLY_REQUEST != 'true'
+        uses: actions/github-script@v7
+        env:
+          AGENTSWEB_SSH_ENABLED: ${{ env.AGENTSWEB_SSH_ENABLED }}
+          AGENTSWEB_SSH_READY: ${{ steps.agentsweb.outcome == 'success' }}
+          EARLY_SSH_COMMENT_ID: ${{ steps.agentsweb.outputs.comment_id }}
+          SSH_ACCESS_FILE: ${{ runner.temp }}/omgithub-ssh/access.env
+          SSH_TUNNEL_LOG: ${{ runner.temp }}/omgithub-ssh/tunnel.log
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const fs = require('node:fs');
+            const sshReady = process.env.AGENTSWEB_SSH_ENABLED === 'true' &&
+              process.env.AGENTSWEB_SSH_READY === 'true' &&
+              fs.existsSync(process.env.SSH_ACCESS_FILE);
+            const access = sshReady
+              ? Object.fromEntries(fs.readFileSync(process.env.SSH_ACCESS_FILE, 'utf8').trim().split('\n').map((line) => {
+                  const separator = line.indexOf('=');
+                  return [line.slice(0, separator), line.slice(separator + 1)];
+                }))
+              : {};
+            const tunnelLog = fs.existsSync(process.env.SSH_TUNNEL_LOG)
+              ? fs.readFileSync(process.env.SSH_TUNNEL_LOG, 'utf8')
+              : '';
+            const tunnelUrl = access.AGENTSWEB_TUNNEL_URL ||
+              (tunnelLog.match(/^ssh:\/\/[^\s]+/m) || [])[0] ||
+              'not registered';
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const run = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sshSection = sshReady
+              ? [
+                  '🔐 **Temporary AgentsWeb SSH session is ready.**', '',
+                  `Run: ${run}`, `SSH URL: \`${tunnelUrl}\``, `Host: \`${access.AGENTSWEB_HOST}:${access.AGENTSWEB_PORT}\``, '',
+                  'Run this command while the job is active:', '',
+                  '```sh', access.AGENTSWEB_COMMAND, '```'
+                ].join('\n')
+              : (process.env.AGENTSWEB_SSH_ENABLED === 'true'
+                ? ['⚠️ **AgentsWeb SSH tunnel setup failed.**', '', `Run: ${run}`, `SSH URL: \`${tunnelUrl}\``].join('\n')
+                : '');
+            const body = [sshSection,
+              process.env.FUSION_ACCESS_TOKEN
+                ? `Fusion plugin: \`${/^[a-f0-9]{40}$/.test(String(process.env.FUSION_PLUGIN_COMMIT || '')) ? process.env.FUSION_PLUGIN_COMMIT : 'unavailable'}\``
+                : '',
+              require(`${process.env.RUNTIME_DIR}/scripts/project-link.cjs`).projectLink(process.env),
+              process.env.TEST_REQUEST === 'true'
+                ? 'This is a synthetic OpenCode session for the full workflow test.'
+                : 'Open the project to access chat, live files, previews, and progress.'
+            ].filter(Boolean).join('\n\n');
+            const earlyComment = Number(process.env.EARLY_SSH_COMMENT_ID);
+            const comment = earlyComment
+              ? await github.rest.issues.updateComment({ owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO, comment_id: earlyComment, body })
+              : await github.rest.issues.createComment({ owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO, issue_number: number, body });
+            core.setOutput('comment_id', comment.data.id);
+      - name: Wait for main OpenCode completion
+        if: env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: |-
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/runner-watch.mjs" build
+          if [[ "$(cat "$OPENCODE_WEB_DIR/opencode-run.exit")" != 0 ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/run-failure.mjs" --summary >&2
+            exit 1
+          fi
+      - name: Wait for production delivery
+        if: env.SSH_ONLY_REQUEST != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/wait-deployment.mjs"
+      - name: Create OpenCode logs release
+        continue-on-error: true
+        if: always() && env.SSH_ONLY_REQUEST != 'true' && steps.opencode_run.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/opencode-release"
+          mkdir -p "$release_dir"
+
+          # Preserve machine-readable responses and execution logs without
+          # publishing OpenCode configuration, credentials, or SSH material.
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/log-response.mjs" "$release_dir/opencode-response.json"
+          if [[ ! -s "$release_dir/opencode-response.json" ]]; then
+            echo 'OpenCode response artifact is empty; refusing to create an incomplete release.' >&2
+            exit 1
+          fi
+          for artifact in "$OPENCODE_WEB_DIR"/*.log "$OPENCODE_WEB_DIR"/model-attempts.json "$OPENCODE_WEB_DIR"/main-model "$OPENCODE_WEB_DIR"/fusion-plugin-commit.txt; do
+            [[ -f "$artifact" && -s "$artifact" ]] || continue
+            [[ "$(basename "$artifact")" == 'opencode.json' ]] && continue
+            cp -f "$artifact" "$release_dir/"
+          done
+
+          release_assets=()
+          for asset in "$release_dir"/*; do
+            [[ -f "$asset" && -s "$asset" ]] || continue
+            release_assets+=("$asset")
+          done
+          ((${#release_assets[@]} > 0))
+
+          tag="opencode-logs-${GITHUB_RUN_ID}"
+          gh release create "$tag" "${release_assets[@]}" \
+            --target "$TARGET_SHA" \
+            --title "OpenCode logs for run #${GITHUB_RUN_NUMBER}" \
+            --notes "Generated OpenCode response and execution logs for workflow run [#${GITHUB_RUN_NUMBER}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})." \
+            --latest=false
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Mark issue waiting for reply
+        if: success() && env.SSH_ONLY_REQUEST != 'true' && env.AWAITING_REPLY_ENDED == 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const warn = (error) => core.warning(error.message);
+            await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO, issue_number: number,
+              body: 'OpenCode asked a question and is waiting for your reply. The session ended; open the game on OmGithub and use Continue to answer.'
+            }).catch(warn);
+            for (const name of ['in progress', 'validating']) await github.rest.issues.removeLabel({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO, issue_number: number, name
+            }).catch((error) => { if (error.status !== 404) warn(error); });
+      - name: Mark issue complete
+        if: success() && env.SSH_ONLY_REQUEST != 'true' && env.AWAITING_REPLY_ENDED != 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            await github.rest.issues.removeLabel({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, name: 'in progress'
+            }).catch((error) => { if (error.status !== 404) throw error; });
+            await github.rest.issues.removeLabel({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, name: 'validating'
+            }).catch((error) => { if (error.status !== 404) throw error; });
+            await github.rest.issues.addLabels({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, labels: ['complete']
+            });
+      - name: Mark issue failed
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const number = Number(process.env.TRIGGER_ISSUE_NUMBER);
+            const runUrl = `https://github.com/${process.env.TARGET_REPOSITORY}/actions/runs/${context.runId}`;
+            const warn = (error) => core.warning(error.message);
+            await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER,
+              repo: process.env.TARGET_REPO,
+              issue_number: number,
+              body: `Build failed. [Open workflow logs](${runUrl}).`
+            }).catch(warn);
+            await github.rest.issues.removeLabel({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, name: 'in progress'
+            }).catch((error) => { if (error.status !== 404) warn(error); });
+            await github.rest.issues.removeLabel({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, name: 'validating'
+            }).catch((error) => { if (error.status !== 404) warn(error); });
+            await github.rest.issues.addLabels({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: number, labels: ['failed']
+            }).catch(warn);
+      - name: Report failed build before debug hold
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        env:
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+        run: |
+          set -euo pipefail
+          sequence=$(/usr/bin/time -p node -p 'Date.now()')
+          payload="{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":$sequence,\"state\":\"ended\",\"phase\":\"building\",\"outcome\":\"failure\",\"reason\":\"The build workflow failed before model diagnostics were available. Open the workflow logs for details.\"}"
+          if [[ -f "$RUNTIME_DIR/scripts/run-failure.mjs" ]]; then
+            payload=$(/usr/bin/time -p node "$RUNTIME_DIR/scripts/run-failure.mjs" --payload "$sequence")
+          fi
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 15 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$TRIGGER_ISSUE_NUMBER/run"
+      - name: Release account credentials before debug hold
+        if: always() && env.AGENTSWEB_SSH_ENABLED != 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "$RUNTIME_DIR/scripts/account-credentials.mjs" ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/account-credentials.mjs" finish
+          fi
+      - name: Keep preview until one hour idle
+        if: (success() || (failure() && vars.OPENCODE_DEBUG_HOLD == 'true' && steps.opencode_web.outcome == 'success')) && env.TEST_REQUEST != 'true' && env.SSH_ONLY_REQUEST != 'true' && env.AWAITING_REPLY_ENDED != 'true'
+        shell: bash
+        run: |-
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/runner-watch.mjs" preview
+      - name: Sync and release account credentials
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "$RUNNER_TEMP/omgithub-account-auth-sync.pid" ]]; then
+            /usr/bin/time -p kill "$(cat "$RUNNER_TEMP/omgithub-account-auth-sync.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNTIME_DIR/scripts/account-credentials.mjs" ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/account-credentials.mjs" release
+          fi
+      - name: Stop lifecycle controller
+        if: always() && env.SSH_ONLY_REQUEST != 'true' && steps.opencode_run.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -p node "$RUNTIME_DIR/scripts/stop-lifecycle.mjs"
+      - name: Append SSH session closed
+        if: always() && env.AGENTSWEB_SSH_ENABLED == 'true' && steps.agentsweb.outcome == 'success' && (steps.agentsweb.outputs.comment_id != '' || steps.access_comment.outputs.comment_id != '' || steps.ssh_access_comment.outputs.comment_id != '')
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            require(`${process.env.RUNTIME_DIR}/.github/scripts/github-rate-observer.cjs`).attach(github, process.env.OPENCODE_WEB_DIR);
+            const { renderTemplate } = require(`${process.env.RUNTIME_DIR}/.github/scripts/opencode-comment-templates.cjs`);
+            await github.rest.issues.createComment({
+              owner: process.env.TARGET_OWNER, repo: process.env.TARGET_REPO,
+              issue_number: Number(process.env.TRIGGER_ISSUE_NUMBER),
+              body: renderTemplate('opencode-ssh-closed-comment.md', {
+                RUN_NUMBER: context.runNumber,
+                RUN_URL: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              })
+            });
+      - name: Clean up OpenCode session
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [[ -f "$RUNTIME_DIR/scripts/stop-lifecycle.mjs" ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/stop-lifecycle.mjs"
+          fi
+          if [[ -f "$RUNTIME_DIR/scripts/worker-tunnel.mjs" ]]; then
+            /usr/bin/time -p node "$RUNTIME_DIR/scripts/worker-tunnel.mjs" stop
+          fi
+          [[ -f "$OPENCODE_WEB_DIR/frpc.pid" ]] && kill "$(cat "$OPENCODE_WEB_DIR/frpc.pid")" 2>/dev/null || true
+          [[ -f "$OPENCODE_WEB_DIR/live-files.pid" ]] && /usr/bin/time -p kill "$(cat "$OPENCODE_WEB_DIR/live-files.pid")" 2>/dev/null || true
+          [[ -f "$OPENCODE_WEB_DIR/opencode.pid" ]] && kill "$(cat "$OPENCODE_WEB_DIR/opencode.pid")" 2>/dev/null || true
+          [[ -f "$OPENCODE_WEB_DIR/opencode-run.pid" ]] && kill "$(cat "$OPENCODE_WEB_DIR/opencode-run.pid")" 2>/dev/null || true
+          [[ -f "$OPENCODE_WEB_DIR/app.pid" ]] && kill "$(cat "$OPENCODE_WEB_DIR/app.pid")" 2>/dev/null || true
+          tmux kill-session -t app-server 2>/dev/null || true
+          [[ -f "$SSH_DIR/tunnel.pid" ]] && kill "$(cat "$SSH_DIR/tunnel.pid")" 2>/dev/null || true
+          [[ -f "$SSH_DIR/sshd.pid" ]] && sudo kill "$(cat "$SSH_DIR/sshd.pid")" 2>/dev/null || true
+          sudo pkill -f 'sshd.*2222' 2>/dev/null || true
+          rm -f "$SSH_KEY" "$SSH_PUBLIC_KEY"
+          rm -rf "$SSH_DIR" "$HOME/.ssh/authorized_keys"
+          rm -rf "$OPENCODE_WEB_DIR"
+      - name: Report terminal build status
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OMGITHUB_ORIGIN: ${{ vars.OMGITHUB_ORIGIN || 'https://omgithub.com' }}
+          OUTCOME: ${{ job.status == 'success' && env.AWAITING_REPLY_ENDED == 'true' && 'awaiting_reply' || job.status }}
+        shell: bash
+        run: |
+          sequence=$(/usr/bin/time -p node -p 'Date.now()')
+          /usr/bin/time -p curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors --max-time 15 \
+            -H "Authorization: Bearer $OMGITHUB_CALLBACK_TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"run\":\"$GITHUB_RUN_ID\",\"attempt\":$GITHUB_RUN_ATTEMPT,\"sequence\":$sequence,\"state\":\"ended\",\"phase\":\"building\",\"outcome\":\"$OUTCOME\"}" \
+            "$OMGITHUB_ORIGIN/api/github/$GITHUB_REPOSITORY/issues/$TRIGGER_ISSUE_NUMBER/run"
     needs: prepare
     if: needs.prepare.outputs.approved == 'true'
-    permissions:
-      contents: write
-      id-token: write
-      issues: write
-      actions: read
-      pull-requests: write
-    uses: denaidark/OhMyGithub/.github/workflows/opencode-reusable.yml@6f6d1b7b9bdb480e4ef1c32fd5b0fca8814a9003
-    with:
-      runtime_ref: 6f6d1b7b9bdb480e4ef1c32fd5b0fca8814a9003
-      issue_number: ${{ needs.prepare.outputs.issue_number }}
-      request: ${{ needs.prepare.outputs.request }}
-      issue_title: ${{ needs.prepare.outputs.issue_title }}
-      labels_json: ${{ needs.prepare.outputs.labels_json }}
-      sender: ${{ needs.prepare.outputs.sender }}
-      target_ref: ${{ needs.prepare.outputs.target_ref }}
-      target_sha: ${{ needs.prepare.outputs.target_sha }}
-    secrets:
-      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-      OPENCODE_AUTH_JSON: ${{ secrets.OPENCODE_AUTH_JSON }}
-      AGENTSWEB_SSH_PUBLIC_KEY: ${{ secrets.AGENTSWEB_SSH_PUBLIC_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
