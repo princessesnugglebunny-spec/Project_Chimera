@@ -1,0 +1,11 @@
+{
+  "comment": "Default model order, the single source of truth. A picked model runs first, then this chain. Fusion leads Default only when the account has Copilot (Fusion token); otherwise it is filtered out and Default starts at DeepSeek. omsite keeps a copy in server/lib/model-chain.mjs, checked by a test.",
+  "fusion": "copilot-fusion-direct/fusion",
+  "chain": [
+    "copilot-fusion-direct/fusion",
+    "opencode/deepseek-v4.1-flash-free",
+    "opencode/glm-5.3-flash-free",
+    "opencode/mimo-v2.6-flash-free",
+    "opencode/big-pickle"
+  ]
+}
