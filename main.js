@@ -686,7 +686,8 @@ function aiTurn() {
   const opp = G.player;
   // play cards
   let played = true;
-  while (played) {
+  let aiPlays = 0;
+  while (played && (difficulty !== 'easy' || aiPlays < 1)) {
     played = false;
     // sort hand by cost asc
     const playable = p.hand.filter(c => canPlayCard(p, c)).sort((a,b)=> (a.card.cost||0)-(b.card.cost||0));
@@ -696,6 +697,7 @@ function aiTurn() {
       }
       playCardAI(inst);
       played = true;
+      aiPlays++;
       break;
     }
   }
@@ -705,6 +707,7 @@ function aiTurn() {
     if (blockers.length === 0) return true;
     const canKill = blockers.some(b => effAtk(a) >= effHp(b));
     const survives = blockers.every(b => effHp(a) > effAtk(b));
+    if (difficulty === 'easy') return canKill || survives;
     return canKill || survives || Math.random() < 0.25;
   });
   if (eligible.length) {
